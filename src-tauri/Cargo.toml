@@ -1,6 +1,6 @@
 [package]
 name = "rez"
-version = "1.0.0"
+version = "1.1.0"
 description = "REZ — Dock Expo-Glass pour Windows"
 authors = ["REZ"]
 license = "MIT"
