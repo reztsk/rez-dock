@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>REZ — Réglages</title>
+    <link rel="stylesheet" href="/src/styles/settings.css" />
+  </head>
+  <body>
+    <div class="window">
+      <header class="titlebar" data-tauri-drag-region>
+        <img class="brand-logo" src="/rez-logo.png" alt="" data-tauri-drag-region />
+        <span class="brand" data-tauri-drag-region>REZ</span>
+        <span class="brand-sub" data-tauri-drag-region>Réglages</span>
+        <div class="spacer" data-tauri-drag-region></div>
+        <button class="win-btn" id="btn-min" title="Réduire" aria-label="Réduire">
+          <svg viewBox="0 0 12 12"><path d="M2 6h8" stroke="currentColor" stroke-width="1.2" /></svg>
+        </button>
+        <button class="win-btn close" id="btn-close" title="Fermer" aria-label="Fermer">
+          <svg viewBox="0 0 12 12"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" stroke-width="1.2" /></svg>
+        </button>
+      </header>
+      <div class="body">
+        <nav class="sidebar" id="nav"></nav>
+        <main class="content" id="content"></main>
+      </div>
+    </div>
+    <script type="module" src="/src/settings/main.ts"></script>
+  </body>
+</html>

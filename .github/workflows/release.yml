@@ -1,0 +1,52 @@
+# Build + publication automatique d'une release GitHub à chaque tag vX.Y.Z.
+# Produit : installeur NSIS (.exe) + signature (.sig) + latest.json (lu par l'auto-update de REZ).
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Dépendances frontend
+        run: npm ci
+
+      - name: Build + release GitHub
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'REZ ${{ github.ref_name }}'
+          releaseBody: |
+            ## Installation
+            Télécharge **REZ_x.y.z_x64-setup.exe** ci-dessous et lance-le (aucun droit administrateur requis).
+            Les versions installées se mettent à jour toutes seules au lancement.
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true

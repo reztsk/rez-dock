@@ -1,0 +1,73 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "REZ",
+  "version": "1.0.0",
+  "identifier": "app.rez.dock",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "dock",
+        "url": "index.html",
+        "title": "REZ Dock",
+        "width": 1200,
+        "height": 520,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "shadow": false,
+        "visible": false,
+        "focus": false,
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
+    "publisher": "REZ",
+    "copyright": "© REZ",
+    "category": "Utility",
+    "shortDescription": "Dock Expo-Glass pour Windows",
+    "longDescription": "REZ remplace la barre des tâches Windows par un dock moderne, fluide et totalement personnalisable.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false,
+        "languages": ["French", "English"],
+        "installerIcon": "icons/icon.ico"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM1NzA4NTlEMUNFNENEREUKUldUZXplUWNuWVZ3TlZ3QkU0NmZTK096WGpqOXJCZGk4ZTNpK3E1WiszbFZ3ZUdTb0dsemhmZVkK",
+      "endpoints": [
+        "https://github.com/reztsk/rez-dock/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

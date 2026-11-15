@@ -1,0 +1,15 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/schemas/
+*.log
+.DS_Store
+Thumbs.db
+# Clés de signature : JAMAIS dans le dépôt
+*.key
+*.key.pub
+.env
+.env.*
+
+# Notes locales (instructions assistant)
+CLAUDE.md.txt
