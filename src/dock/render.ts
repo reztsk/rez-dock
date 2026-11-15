@@ -1,4 +1,5 @@
 import { icon } from '../shared/api';
+import { brandIcon } from '../shared/brands';
 import { MODULES } from '../shared/defaults';
 import { GLYPHS } from '../shared/icons';
 import { measure, setLabel } from './engine';
@@ -100,6 +101,15 @@ function setLetter(inner: HTMLElement, label: string): void {
 function loadIcon(inner: HTMLElement, path?: string): void {
   inner.dataset.icon = path ?? '';
   if (!path) return;
+  // Chrome / Explorateur : logo vectoriel intégré (net à toute taille, jamais de lettre).
+  const svg = brandIcon(path);
+  if (svg) {
+    const b = document.createElement('div');
+    b.className = 'ico brand';
+    b.innerHTML = svg;
+    inner.replaceChildren(b);
+    return;
+  }
   void icon(path, 128).then((src) => {
     if (!src || inner.dataset.icon !== path) return;
     const img = document.createElement('img');
