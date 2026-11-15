@@ -1,3 +1,4 @@
+import { t } from '../shared/i18n';
 import { findUpdate, installUpdate, type Update } from '../shared/update';
 import { anchor } from './layout';
 import { closePopover, div, openPopover } from './popover';
@@ -59,7 +60,7 @@ function showUpdate(update: Update): void {
       go.disabled = false;
       later.disabled = false;
       go.textContent = 'Réessayer';
-      sub.textContent = `Échec : ${String(e).slice(0, 80)}`;
+      sub.textContent = t('Échec : {e}', { e: String(e).slice(0, 80) });
     }
   };
   actions.append(later, go);

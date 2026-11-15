@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { api } from '../shared/api';
 import { defaultConfig, mergeConfig, pinnedItem } from '../shared/defaults';
+import { autoTranslate, setLang } from '../shared/i18n';
 import { applyAppearance } from '../shared/theme';
 import type { ConfigChanged, WinInfo } from '../shared/types';
 import { context, dockContext, middle, primary } from './actions';
@@ -13,7 +14,7 @@ import { applyLayout, axis, layout, nearestEdge, setAnchor, vertical, type Inset
 import { closePopover } from './popover';
 import { render, slotElement, updateClocks } from './render';
 import { setLabelListener } from './slots';
-import { defaultInsertIndex, notify, onChange, store, updateConfig } from './store';
+import { defaultInsertIndex, IS_PRIMARY, LABEL, notify, onChange, store, updateConfig } from './store';
 import { checkAtStartup } from './updater';
 
 const dockEl = document.getElementById('dock') as HTMLElement;
@@ -53,20 +54,28 @@ function relayout(): void {
 }
 
 async function init(): Promise<void> {
-  const raw = await api.getConfig();
+  let raw = await api.getConfig();
+  // Écran secondaire au tout premier lancement : on attend la config créée par le dock principal.
+  for (let i = 0; !raw && !IS_PRIMARY && i < 40; i++) {
+    await new Promise((r) => setTimeout(r, 250));
+    raw = await api.getConfig();
+  }
   if (raw) {
     store.config = mergeConfig(raw);
   } else {
     // Premier lancement : préréglage compact centré en bas + détection des apps courantes.
     store.config = defaultConfig(await api.defaultPins().catch(() => []));
-    await api.saveConfig(store.config, 'dock', true);
+    await api.saveConfig(store.config, LABEL, true);
   }
+  setLang(store.config.behavior.language);
+  autoTranslate(document.getElementById('popover-layer') as HTMLElement);
   layout.insets = await invoke<Insets>('get_layout').catch(() => layout.insets);
   applyAppearance(store.config);
   applyLayout();
   store.windows = await api.getWindows();
 
   onChange(() => {
+    setLang(store.config.behavior.language);
     applyAppearance(store.config);
     applyLayout();
     updateClocks();
@@ -78,7 +87,7 @@ async function init(): Promise<void> {
   render();
 
   await listen<ConfigChanged>('config-changed', (e) => {
-    if (e.payload.source === 'dock') return;
+    if (e.payload.source === LABEL) return;
     store.config = mergeConfig(e.payload.config);
     notify();
   });
@@ -131,7 +140,8 @@ async function init(): Promise<void> {
     }, 60),
   );
 
-  if (store.config.behavior.checkUpdates && !import.meta.env.DEV) {
+  // Mise à jour : vérifiée par le dock de l'écran principal uniquement (une seule notification).
+  if (IS_PRIMARY && store.config.behavior.checkUpdates && !import.meta.env.DEV) {
     setTimeout(() => void checkAtStartup(), 6000);
   }
 }

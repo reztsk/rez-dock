@@ -13,8 +13,9 @@ Pas besoin de droits admin. REZ se met à jour tout seul : une notification s'af
 
 | | |
 |---|---|
-| **Remplace la barre Windows** | `Shell_TrayWnd` (écran principal) masquée dès le lancement, barre native restaurée à l'identique en quittant. Mode doux compatible Wallpaper Engine : aucune diffusion système, seules les fenêtres maximisées sont notifiées, barres des écrans secondaires intactes. Démarrage auto avec Windows en option. |
-| **Masquage auto (style macOS)** | Le dock se replie quand la souris s'en va ; un petit trait lumineux reste au bord. Souris au bord → il remonte. **Touche Windows** (ou menu Démarrer ouvert) → il remonte aussi. Délai réglable. |
+| **Remplace la barre Windows (tous les écrans)** | `Shell_TrayWnd` + `Shell_SecondaryTrayWnd` masquées dès le lancement (zéro double barre), restaurées à l'identique en quittant. Mode doux compatible Wallpaper Engine : simple `ShowWindow`, bureau jamais touché, aucune diffusion système, seules les fenêtres maximisées sont notifiées. Démarrage auto avec Windows en option. |
+| **Multi-écran** | Un dock sur chaque écran connecté (branchement/débranchement détectés à chaud). Désactivable : *Réglages → Comportement → Écrans*. |
+| **Masquage auto (style macOS)** | Le dock se replie quand la souris s'en va ; un petit trait lumineux reste au bord. Souris au bord → il remonte. **Touche Windows** (ou menu Démarrer ouvert) → les docks de tous les écrans remontent. Délai réglable, mode **épinglé** (toujours visible) en un clic (réglages ou clic droit sur le dock). |
 | **Compact & libre** | Préréglage ultra-discret (barre de 44 px, centrée en bas), échelle globale 50–250 %, bord Bas/Haut/Gauche/Droite ou placement libre (glisser le fond du dock, aimantation aux bords). |
 | **Bouton Démarrer** | Logo Windows minimaliste → ouvre le vrai menu Démarrer. |
 | **Expo-Glass** | Vrai flou du bureau (fenêtre DWM blur/acrylique dont la forme suit la barre en temps réel) + teinte, reflets, bordure néon en CSS. |
@@ -24,7 +25,8 @@ Pas besoin de droits admin. REZ se met à jour tout seul : une notification s'af
 | **Drag & drop** | Glisser dans la barre pour réordonner · glisser vers l'intérieur de l'écran pour retirer · déposer un `.exe/.lnk/.url` pour épingler. |
 | **Icônes cachées** | Flèche ^ intégrée : apps de la zone de notification + processus en arrière-plan (ouvrir, emplacement, terminer). |
 | **Mode gaming** | Jeu plein écran détecté → le dock glisse hors de l'écran, ses fenêtres sont masquées, tout polling s'arrête. |
-| **Auto-update** | Releases GitHub signées (minisign), installeur NSIS passif, redémarrage auto. |
+| **Auto-update** | Vérification au démarrage, pop-up « Mettre à jour » en un clic. Releases GitHub signées (minisign), installeur NSIS passif, redémarrage auto. |
+| **Français / English** | Sélecteur de langue en bas des réglages (Automatique, Français, English) + lien vers le profil GitHub. |
 
 ### Sécurité anti-cheat (Vanguard, BattlEye, EAC…)
 
@@ -111,7 +113,7 @@ Bump des 3 fichiers de version → commit → tag → push → build + release a
 
 - **Barre des tâches Windows disparue après un arrêt forcé de REZ** : relancer REZ (l'état d'origine est restauré au démarrage puis réappliqué), ou décocher *Masquer la barre des tâches*, ou redémarrer l'Explorateur (`taskkill /f /im explorer.exe` puis `start explorer`).
 - **Pas de flou** : *Réglages → Apparence → Intensité du flou* > 0, et *Paramètres Windows → Personnalisation → Couleurs → Effets de transparence* activé.
-- **Multi-écrans** : le dock s'affiche sur l'écran principal ; les barres Windows des autres écrans restent en place.
+- **Multi-écrans** : un dock par écran et barre Windows masquée partout. Pour un seul dock (écran principal), décocher *Dock sur tous les écrans* : les barres des autres écrans reviennent.
 - **Wallpaper Engine / Lively** : REZ ne leur envoie aucun message. En cas de souci, décocher *Masquer la barre des tâches* : REZ flotte alors au-dessus sans toucher à rien.
 - **Touche Windows** : lue par `GetAsyncKeyState` (aucun hook clavier), jamais pendant un jeu plein écran.
 

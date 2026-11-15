@@ -1,6 +1,6 @@
-//! Verre natif "Expo-Glass" : un petit pool de fenêtres Win32 floutant réellement le bureau
-//! (accent DWM blur/acrylique), chacune dimensionnée EXACTEMENT sur une surface du dock
-//! (barre, popover) et placée juste sous la fenêtre dock dans l'ordre Z.
+//! Verre natif "Expo-Glass" : pour CHAQUE dock (un par écran), un petit pool de fenêtres Win32
+//! floutant réellement le bureau (accent DWM blur/acrylique), chacune dimensionnée EXACTEMENT sur
+//! une surface du dock (barre, popover) et placée juste sous la fenêtre dock dans l'ordre Z.
 //!
 //! Pourquoi des fenêtres dimensionnées et pas une région : DWM ignore SetWindowRgn pour le flou
 //! d'accent (il floute tout le rectangle de la fenêtre). Et `backdrop-filter` CSS ne floute que le
@@ -8,9 +8,10 @@
 //! Les coins arrondis viennent de DWM (Windows 11) ; un léger retrait garde le flou à l'intérieur
 //! de l'arrondi CSS, plus large.
 
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{mpsc, Mutex};
+use std::sync::{mpsc, LazyLock, Mutex};
 use windows::core::{BOOL, HSTRING, PCSTR, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::Graphics::Dwm::{
@@ -23,7 +24,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 use super::hwnd;
 
-/// Nombre max de surfaces simultanées (barre + popover + marge).
+/// Nombre max de surfaces simultanées par dock (barre + popover + marge).
 const POOL: usize = 3;
 
 /// (x, y, w, h, rayon) en pixels écran physiques.
@@ -35,14 +36,17 @@ struct Placed {
     corner: i32,
 }
 
+/// Pool de fenêtres de verre d'UN dock.
 struct Pool {
     windows: Vec<isize>,
     placed: Vec<Option<Placed>>,
     last: Vec<GlassRect>,
     scale: f64,
+    /// Fenêtre dock sous laquelle le verre est placé (ordre Z).
+    dock: isize,
 }
 
-static STATE: Mutex<Pool> = Mutex::new(Pool { windows: Vec::new(), placed: Vec::new(), last: Vec::new(), scale: 1.0 });
+static POOLS: LazyLock<Mutex<HashMap<String, Pool>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 static MODE: AtomicU32 = AtomicU32::new(u32::MAX);
 static VISIBLE: AtomicBool = AtomicBool::new(true);
 
@@ -87,84 +91,107 @@ unsafe extern "system" fn wndproc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
     match msg {
         WM_NCHITTEST => LRESULT(HTTRANSPARENT as isize),
         WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
+        // Pool retiré (écran débranché) : le thread du pool se termine (ses fenêtres avec lui).
+        WM_DESTROY => {
+            PostQuitMessage(0);
+            LRESULT(0)
+        }
         _ => DefWindowProcW(h, msg, wp, lp),
     }
 }
 
-/// Crée le pool sur un thread dédié (boucle de messages propre).
-pub fn create(scale: f64) {
+/// Crée les fenêtres d'un pool sur un thread dédié (boucle de messages propre).
+fn create_windows() -> Vec<isize> {
     let (tx, rx) = mpsc::channel::<Vec<isize>>();
-    std::thread::Builder::new()
-        .name("rez-glass".into())
-        .spawn(move || unsafe {
-            let mut created = Vec::new();
-            if let Ok(module) = GetModuleHandleW(None) {
-                let class = HSTRING::from("RezGlassBackdrop");
-                let wc = WNDCLASSEXW {
-                    cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
-                    lpfnWndProc: Some(wndproc),
-                    hInstance: module.into(),
-                    lpszClassName: PCWSTR(class.as_ptr()),
-                    hbrBackground: HBRUSH(GetStockObject(BLACK_BRUSH).0),
-                    ..Default::default()
-                };
-                RegisterClassExW(&wc);
-                for _ in 0..POOL {
-                    let h = CreateWindowExW(
-                        WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST,
-                        &class,
-                        &HSTRING::from("REZ Glass"),
-                        WS_POPUP,
-                        0,
-                        0,
-                        1,
-                        1,
-                        None,
-                        None,
-                        Some(module.into()),
-                        None,
-                    );
-                    if let Ok(h) = h {
-                        let none = DWMWA_COLOR_NONE;
-                        let _ = DwmSetWindowAttribute(h, DWMWA_BORDER_COLOR, &none as *const u32 as *const _, 4);
-                        created.push(h.0 as isize);
-                    }
+    let spawned = std::thread::Builder::new().name("rez-glass".into()).spawn(move || unsafe {
+        let mut created = Vec::new();
+        if let Ok(module) = GetModuleHandleW(None) {
+            let class = HSTRING::from("RezGlassBackdrop");
+            let wc = WNDCLASSEXW {
+                cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+                lpfnWndProc: Some(wndproc),
+                hInstance: module.into(),
+                lpszClassName: PCWSTR(class.as_ptr()),
+                hbrBackground: HBRUSH(GetStockObject(BLACK_BRUSH).0),
+                ..Default::default()
+            };
+            RegisterClassExW(&wc); // déjà enregistrée au 2e pool : échec sans conséquence
+            for _ in 0..POOL {
+                let h = CreateWindowExW(
+                    WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST,
+                    &class,
+                    &HSTRING::from("REZ Glass"),
+                    WS_POPUP,
+                    0,
+                    0,
+                    1,
+                    1,
+                    None,
+                    None,
+                    Some(module.into()),
+                    None,
+                );
+                if let Ok(h) = h {
+                    let none = DWMWA_COLOR_NONE;
+                    let _ = DwmSetWindowAttribute(h, DWMWA_BORDER_COLOR, &none as *const u32 as *const _, 4);
+                    created.push(h.0 as isize);
                 }
             }
-            let _ = tx.send(created);
-            let mut msg = MSG::default();
-            while GetMessageW(&mut msg, None, 0, 0).as_bool() {
-                let _ = TranslateMessage(&msg);
-                DispatchMessageW(&msg);
-            }
-        })
-        .expect("thread verre");
-    let windows = rx.recv().unwrap_or_default();
-    let mut st = STATE.lock().unwrap();
-    st.placed = vec![None; windows.len()];
-    st.windows = windows;
-    st.scale = scale;
-}
-
-pub fn set_scale(scale: f64) {
-    STATE.lock().unwrap().scale = scale;
-}
-
-pub fn set_mode(mode: BlurMode) {
-    if MODE.swap(mode as u32, Ordering::SeqCst) == mode as u32 {
-        return;
+        }
+        let _ = tx.send(created);
+        let mut msg = MSG::default();
+        while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    });
+    if spawned.is_err() {
+        return Vec::new();
     }
-    let windows = STATE.lock().unwrap().windows.clone();
+    rx.recv().unwrap_or_default()
+}
+
+/// Pool de verre du dock `label` (créé au besoin) ; met à jour sa fenêtre dock et son DPI.
+pub fn ensure(label: &str, dock: isize, scale: f64) {
+    {
+        let mut pools = POOLS.lock().unwrap();
+        if let Some(p) = pools.get_mut(label) {
+            p.dock = dock;
+            p.scale = scale;
+            return;
+        }
+    }
+    let windows = create_windows();
+    let mode = MODE.load(Ordering::SeqCst);
+    if mode != u32::MAX {
+        apply_accent(&windows, mode);
+    }
+    let pool = Pool { placed: vec![None; windows.len()], windows, last: Vec::new(), scale, dock };
+    POOLS.lock().unwrap().insert(label.to_owned(), pool);
+}
+
+/// Supprime le pool d'un dock retiré (écran débranché, multi-écran désactivé).
+pub fn remove(label: &str) {
+    if let Some(p) = POOLS.lock().unwrap().remove(label) {
+        for w in p.windows {
+            unsafe {
+                let _ = PostMessageW(Some(hwnd(w)), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+        }
+    }
+}
+
+fn apply_accent(windows: &[isize], mode: u32) {
     unsafe {
         let Ok(user32) = GetModuleHandleW(&HSTRING::from("user32.dll")) else { return };
         let Some(addr) = GetProcAddress(user32, PCSTR(c"SetWindowCompositionAttribute".as_ptr() as *const u8)) else {
             return;
         };
         let swca: SetWindowCompositionAttribute = std::mem::transmute(addr);
-        for w in windows {
+        for &w in windows {
             let mut accent = AccentPolicy {
-                state: mode as u32,
-                flags: if mode == BlurMode::Acrylic { 2 } else { 0 },
+                state: mode,
+                flags: if mode == BlurMode::Acrylic as u32 { 2 } else { 0 },
                 // AABBGGRR — teinte quasi nulle : la couleur est gérée côté CSS (en direct).
                 gradient: 0x0110_1010,
                 animation: 0,
@@ -177,12 +204,25 @@ pub fn set_mode(mode: BlurMode) {
             let _ = swca(hwnd(w), &mut data);
         }
     }
+}
+
+pub fn set_mode(mode: BlurMode) {
+    if MODE.swap(mode as u32, Ordering::SeqCst) == mode as u32 {
+        return;
+    }
+    let all: Vec<isize> = POOLS.lock().unwrap().values().flat_map(|p| p.windows.clone()).collect();
+    apply_accent(&all, mode as u32);
     reapply();
 }
 
-/// Place une fenêtre de verre par surface, juste sous `dock` dans l'ordre Z.
-pub fn set_surfaces(dock: isize, rects: &[GlassRect]) {
-    let mut st = STATE.lock().unwrap();
+/// Place une fenêtre de verre par surface du dock `label`, juste sous ce dock dans l'ordre Z.
+pub fn set_surfaces(label: &str, rects: &[GlassRect]) {
+    if let Some(p) = POOLS.lock().unwrap().get_mut(label) {
+        place(p, rects);
+    }
+}
+
+fn place(st: &mut Pool, rects: &[GlassRect]) {
     st.last = rects.to_vec();
     let show = VISIBLE.load(Ordering::SeqCst) && MODE.load(Ordering::SeqCst) != BlurMode::Off as u32;
     let rho = (8.0 * st.scale).round() as i32; // rayon DWM "ROUND" à ce DPI
@@ -220,7 +260,7 @@ pub fn set_surfaces(dock: isize, rects: &[GlassRect]) {
             }
             let _ = SetWindowPos(
                 w,
-                Some(hwnd(dock)),
+                Some(hwnd(st.dock)),
                 rect.0,
                 rect.1,
                 rect.2,
@@ -232,21 +272,19 @@ pub fn set_surfaces(dock: isize, rects: &[GlassRect]) {
     }
 }
 
+/// Force le masquage puis la ré-application complète de tous les pools.
 fn reapply() {
-    let (rects, dock) = {
-        let mut st = STATE.lock().unwrap();
-        for p in st.placed.iter_mut() {
-            *p = None;
-        }
-        // Force le masquage puis la ré-application complète.
-        for &w in &st.windows {
+    let mut pools = POOLS.lock().unwrap();
+    for p in pools.values_mut() {
+        for i in 0..p.windows.len() {
+            p.placed[i] = None;
             unsafe {
-                let _ = ShowWindow(hwnd(w), SW_HIDE);
+                let _ = ShowWindow(hwnd(p.windows[i]), SW_HIDE);
             }
         }
-        (st.last.clone(), crate::state::SHARED.dock_hwnd.load(Ordering::Relaxed))
-    };
-    set_surfaces(dock, &rects);
+        let last = p.last.clone();
+        place(p, &last);
+    }
 }
 
 pub fn set_visible(visible: bool) {

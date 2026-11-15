@@ -7,6 +7,7 @@
  * La boucle s'arrête d'elle-même au repos → 0 % CPU quand on ne touche pas au dock.
  */
 import { api } from '../shared/api';
+import { t as tr } from '../shared/i18n';
 import { eff } from '../shared/theme';
 import type { Surface } from '../shared/types';
 import { revealZones } from './autohide';
@@ -139,7 +140,7 @@ function updateTooltip(): void {
       break;
     }
   }
-  const label = best ? labelOf.get(best) : '';
+  const label = best ? tr(labelOf.get(best) ?? '') : '';
   if (!best || !label) {
     tooltipEl.classList.remove('show');
     return;

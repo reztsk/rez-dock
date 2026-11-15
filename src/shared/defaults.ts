@@ -54,6 +54,8 @@ export const DEFAULT_BEHAVIOR: Behavior = {
   autoHideDelay: 600,
   peekLine: true,
   revealOnWinKey: true,
+  allMonitors: true,
+  language: 'auto',
   hideTaskbar: true,
   reserveSpace: true,
   gamingMode: true,

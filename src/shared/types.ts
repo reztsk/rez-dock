@@ -60,6 +60,10 @@ export interface Behavior {
   peekLine: boolean;
   /** Touche Windows / menu Démarrer ouvert → le dock remonte */
   revealOnWinKey: boolean;
+  /** Un dock sur chaque écran connecté (barre Windows masquée partout) */
+  allMonitors: boolean;
+  /** Langue de l'interface */
+  language: 'auto' | 'fr' | 'en';
   hideTaskbar: boolean;
   reserveSpace: boolean;
   gamingMode: boolean;

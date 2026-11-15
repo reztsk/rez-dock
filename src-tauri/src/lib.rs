@@ -7,12 +7,10 @@ mod monitor;
 mod state;
 mod win;
 
-use std::sync::atomic::Ordering;
 use tauri::{Manager, RunEvent, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
 
-use state::SHARED;
-use win::{glass, taskbar};
+use win::taskbar;
 
 pub fn run() {
     // Filet de sécurité : la barre Windows est TOUJOURS restaurée, même sur panic.
@@ -62,25 +60,24 @@ pub fn run() {
                 taskbar::init(dir.join("taskbar-state.json"));
             }
 
-            let dock = app.get_webview_window("dock").expect("fenêtre dock manquante");
-            let dock_hwnd = dock.hwnd().map(|h| h.0 as isize).unwrap_or(0);
-            SHARED.dock_hwnd.store(dock_hwnd, Ordering::Relaxed);
-
-            // Verre natif sous le dock.
-            glass::create(dock::compute_bounds().scale);
-
-            commands::apply_native(&handle);
+            let dock = app.get_webview_window(dock::PRIMARY).expect("fenêtre dock manquante");
             let _ = dock.set_ignore_cursor_events(true);
+
+            // Barres Windows masquées + un dock (et son verre natif) par écran.
+            commands::apply_native(&handle);
             dock::set_visible(&handle, true);
 
             monitor::start(handle);
             Ok(())
         })
         .on_window_event(|window, event| {
-            if window.label() == "dock" {
-                if let WindowEvent::CloseRequested { .. } = event {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let label = window.label();
+                if label == dock::PRIMARY {
                     taskbar::restore();
                     window.app_handle().exit(0);
+                } else if dock::is_dock(label) {
+                    api.prevent_close(); // docks secondaires : gérés par REZ (Alt+F4 ignoré)
                 }
             }
         })

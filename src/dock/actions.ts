@@ -1,3 +1,4 @@
+import { t } from '../shared/i18n';
 import { api, fileStem } from '../shared/api';
 import { MODULES, pinnedItem } from '../shared/defaults';
 import type { WinInfo } from '../shared/types';
@@ -154,7 +155,7 @@ export function context(el: HTMLElement, x: number): void {
       entries.push('sep');
       const n = slot.windows.length;
       entries.push({
-        label: n > 1 ? `Fermer les ${n} fenêtres` : 'Fermer la fenêtre',
+        label: n > 1 ? t('Fermer les {n} fenêtres', { n }) : 'Fermer la fenêtre',
         icon: 'close',
         danger: true,
         action: () => slot.windows.forEach((w) => void api.closeWindow(w.hwnd)),
@@ -179,6 +180,15 @@ export function context(el: HTMLElement, x: number): void {
 
 function dockEntries(): MenuEntry[] {
   return [
+    {
+      // Mode épinglé (toujours visible) ⇄ masquage automatique.
+      label: store.config.behavior.autoHide ? 'Épingler le dock (toujours visible)' : 'Masquer automatiquement le dock',
+      icon: store.config.behavior.autoHide ? 'pin' : 'unpin',
+      action: () =>
+        updateConfig((c) => {
+          c.behavior.autoHide = !c.behavior.autoHide;
+        }),
+    },
     { label: 'Réglages REZ…', icon: 'sliders', action: () => api.openSettings() },
     { label: 'Gestionnaire des tâches', icon: 'layers', action: () => api.shellAction('taskmgr') },
     { label: 'Quitter REZ', icon: 'power', danger: true, action: () => api.quit() },

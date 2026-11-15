@@ -1,7 +1,8 @@
 //! Threads de fond :
-//!  - `tick` (250 ms) : mode gaming (plein écran), liste des fenêtres, maintien barre native masquée.
-//!  - `hit`  (16 ms)  : click-through hors des zones du dock, suivi de la fenêtre active,
-//!                     zone de réveil du masquage auto, touche Windows (GetAsyncKeyState, sans hook).
+//!  - `tick` (250 ms) : mode gaming (plein écran), liste des fenêtres, maintien des barres natives
+//!                     masquées, branchement/débranchement d'écrans.
+//!  - `hit`  (16 ms)  : click-through hors des zones de chaque dock, suivi de la fenêtre active,
+//!                     zones de réveil du masquage auto, touche Windows (GetAsyncKeyState, sans hook).
 //!
 //! Mode gaming = 100 % passif : GetForegroundWindow + GetClientRect + MonitorInfo +
 //! SHQueryUserNotificationState. Aucun handle sur le jeu, aucun hook, aucune lecture mémoire.
@@ -82,7 +83,9 @@ fn set_gaming(app: &AppHandle, active: bool) {
             thread::sleep(Duration::from_millis(380));
             if SHARED.gaming.load(Ordering::SeqCst) {
                 dock::set_visible(&a, false);
-                let _ = a.get_webview_window("dock").map(|w| w.set_ignore_cursor_events(true));
+                for w in dock::windows(&a) {
+                    let _ = w.set_ignore_cursor_events(true);
+                }
             }
         });
     } else {
@@ -95,7 +98,7 @@ fn tick_loop(app: AppHandle) {
     let mut pending = false;
     let mut streak = 0u32;
     let mut cache: HashMap<u32, String> = HashMap::new();
-    let mut last_monitor = win::primary_monitor();
+    let mut last_monitors = monitors_key();
 
     loop {
         thread::sleep(Duration::from_millis(250));
@@ -146,14 +149,22 @@ fn tick_loop(app: AppHandle) {
 
         // --- Changement d'écran / DPI ---
         if tick % 8 == 0 {
-            let m = win::primary_monitor();
-            if m.0 != last_monitor.0 || (m.2 - last_monitor.2).abs() > f64::EPSILON {
-                last_monitor = m;
+            let key = monitors_key();
+            if key != last_monitors {
+                last_monitors = key;
                 dock::layout(&app);
-                let _ = app.emit("display-changed", m.2);
+                let _ = app.emit("display-changed", ());
             }
         }
     }
+}
+
+/// Empreinte des écrans (position, taille, DPI) : détecte branchement, résolution, mise à l'échelle.
+fn monitors_key() -> Vec<(i32, i32, i32, i32, u32)> {
+    win::monitors()
+        .iter()
+        .map(|m| (m.rect.left, m.rect.top, m.rect.right, m.rect.bottom, (m.scale * 100.0) as u32))
+        .collect()
 }
 
 /// Menu Démarrer / Recherche / Centre de notifications au premier plan ?
@@ -184,20 +195,25 @@ fn in_rects(list: &[crate::state::ScreenRect], pt: POINT) -> bool {
 
 fn hit_loop(app: AppHandle) {
     let own = std::process::id();
-    let mut last_inside = false;
-    let mut last_reveal = false;
+    // État précédent par dock : (souris sur le dock, souris dans la zone de réveil).
+    let mut last: HashMap<String, (bool, bool)> = HashMap::new();
+    let mut changes: Vec<(String, Option<bool>, Option<bool>)> = Vec::new();
     let mut last_shell = false;
     let mut flyout = false;
     let mut last_fg_raw: isize = 0;
-    let Some(dock_win) = app.get_webview_window("dock") else { return };
+    let mut n: u32 = 0;
 
     loop {
         thread::sleep(Duration::from_millis(16));
         if SHARED.gaming.load(Ordering::Relaxed) {
-            last_inside = false;
-            last_reveal = false;
+            last.clear();
             last_shell = false;
             continue;
+        }
+        n = n.wrapping_add(1);
+        // Barre Windows ré-affichée par explorer (touche Win…) : re-masquée en ~100 ms.
+        if n % 6 == 0 {
+            taskbar::quick_check();
         }
         unsafe {
             // Dernière fenêtre active hors REZ (pour le clic "réduire si déjà active").
@@ -211,28 +227,46 @@ fn hit_loop(app: AppHandle) {
                 flyout = !fg.is_invalid() && is_shell_flyout(fg);
             }
 
-            // Touche Win / menu Démarrer ouvert → le dock remonte (masquage auto).
+            // Touche Win / menu Démarrer ouvert → TOUS les docks remontent (masquage auto).
             let shell = flyout || win_key_down();
             if shell != last_shell {
                 last_shell = shell;
-                let _ = app.emit_to("dock", "shell-reveal", shell);
+                for w in dock::windows(&app) {
+                    let _ = w.emit_to(w.label(), "shell-reveal", shell);
+                }
             }
 
             let mut pt = POINT::default();
             if GetCursorPos(&mut pt).is_err() {
                 continue;
             }
-            let inside = in_rects(&SHARED.hit.lock().unwrap(), pt);
-            if inside != last_inside {
-                last_inside = inside;
-                let _ = dock_win.set_ignore_cursor_events(!inside);
-                let _ = app.emit_to("dock", "cursor-inside", inside);
+            {
+                let docks = SHARED.docks.lock().unwrap();
+                for d in docks.iter() {
+                    let inside = in_rects(&d.hit, pt);
+                    // Zone de réveil (bord d'écran / petit trait) : n'intercepte aucun clic.
+                    let reveal = in_rects(&d.reveal, pt);
+                    let prev = last.get(d.label.as_str()).copied().unwrap_or((false, false));
+                    if prev != (inside, reveal) {
+                        changes.push((
+                            d.label.clone(),
+                            (prev.0 != inside).then_some(inside),
+                            (prev.1 != reveal).then_some(reveal),
+                        ));
+                        last.insert(d.label.clone(), (inside, reveal));
+                    }
+                }
             }
-            // Zone de réveil (bord d'écran / petit trait) : n'intercepte aucun clic.
-            let reveal = in_rects(&SHARED.reveal.lock().unwrap(), pt);
-            if reveal != last_reveal {
-                last_reveal = reveal;
-                let _ = app.emit_to("dock", "reveal-zone", reveal);
+            for (label, inside, reveal) in changes.drain(..) {
+                if let Some(inside) = inside {
+                    if let Some(w) = app.get_webview_window(&label) {
+                        let _ = w.set_ignore_cursor_events(!inside);
+                    }
+                    let _ = app.emit_to(label.as_str(), "cursor-inside", inside);
+                }
+                if let Some(reveal) = reveal {
+                    let _ = app.emit_to(label.as_str(), "reveal-zone", reveal);
+                }
             }
         }
     }

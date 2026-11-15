@@ -5,12 +5,16 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { api, icon, fileStem } from '../shared/api';
 import { defaultConfig, mergeConfig, MODULES, moduleItem, pinnedItem, THEMES } from '../shared/defaults';
 import { GLYPHS, type GlyphName } from '../shared/icons';
+import { autoTranslate, lang, setLang, t, type LangPref } from '../shared/i18n';
 import { applyAppearance, normalizeHex } from '../shared/theme';
 import type { ConfigChanged, DockEdge, DockItem, ModuleType, RezConfig } from '../shared/types';
 import { findUpdate, installUpdate, type Update } from '../shared/update';
 import { button, card, colorPicker, el, h2, iconButton, page, row, slider, stackRow, toggle } from './ui';
 
 const REPO_URL = 'https://github.com/reztsk/rez-dock';
+const PROFILE_URL = 'https://github.com/reztsk';
+const GITHUB_SVG =
+  '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>';
 
 const content = document.getElementById('content') as HTMLElement;
 const nav = document.getElementById('nav') as HTMLElement;
@@ -56,8 +60,30 @@ function renderNav(): void {
     };
     nav.appendChild(item);
   }
+  // Bas de la barre latérale : langue, profil GitHub, version.
   const foot = el('div', 'nav-foot');
-  void getVersion().then((v) => (foot.textContent = `REZ v${v}`));
+  const langSel = el('select', 'lang-select');
+  langSel.title = 'Langue';
+  for (const [v, label] of [['auto', 'Automatique'], ['fr', 'Français'], ['en', 'English']] as const) {
+    langSel.appendChild(new Option(label, v, false, cfg.behavior.language === v));
+  }
+  langSel.onchange = () => {
+    cfg.behavior.language = langSel.value as LangPref;
+    // Sauvegarde immédiate puis rechargement : toute l'interface (et les docks) passent à la langue choisie.
+    void api.saveConfig(cfg, 'settings', true).then(() => location.reload());
+  };
+  const gh = el('a', 'gh-link');
+  gh.href = PROFILE_URL;
+  gh.title = 'Profil GitHub de REZ';
+  gh.innerHTML = GITHUB_SVG;
+  gh.appendChild(document.createTextNode(PROFILE_URL.replace('https://', '')));
+  gh.onclick = (e) => {
+    e.preventDefault();
+    void api.launch(PROFILE_URL);
+  };
+  const ver = el('div', 'nav-version');
+  void getVersion().then((v) => (ver.textContent = `REZ v${v}`));
+  foot.append(langSel, gh, ver);
   nav.appendChild(foot);
 }
 
@@ -248,7 +274,7 @@ function itemsPage(): HTMLElement {
       icon: 'refresh',
       kind: 'danger',
       onClick: async () => {
-        if (!confirm('Réinitialiser l’agencement du dock (les réglages d’apparence sont conservés) ?')) return;
+        if (!confirm(t('Réinitialiser l’agencement du dock (les réglages d’apparence sont conservés) ?'))) return;
         const fresh = defaultConfig(await api.defaultPins());
         cfg.items = fresh.items;
         commit(true);
@@ -371,8 +397,8 @@ function itemRow(item: DockItem): HTMLElement {
 async function addApp(): Promise<void> {
   const picked = await open({
     multiple: true,
-    title: 'Ajouter des applications au dock',
-    filters: [{ name: 'Applications et raccourcis', extensions: ['exe', 'lnk', 'url', 'bat', 'cmd', 'appref-ms'] }],
+    title: t('Ajouter des applications au dock'),
+    filters: [{ name: t('Applications et raccourcis'), extensions: ['exe', 'lnk', 'url', 'bat', 'cmd', 'appref-ms'] }],
   });
   if (!picked) return;
   const paths = Array.isArray(picked) ? picked : [picked];
@@ -388,8 +414,8 @@ async function addApp(): Promise<void> {
 async function changeIcon(item: DockItem): Promise<void> {
   const picked = await open({
     multiple: false,
-    title: 'Choisir une icône',
-    filters: [{ name: 'Icônes', extensions: ['ico', 'png', 'jpg', 'jpeg', 'webp', 'exe', 'dll'] }],
+    title: t('Choisir une icône'),
+    filters: [{ name: t('Icônes'), extensions: ['ico', 'png', 'jpg', 'jpeg', 'webp', 'exe', 'dll'] }],
   });
   if (!picked || Array.isArray(picked)) return;
   item.icon = picked;
@@ -403,13 +429,24 @@ function behaviorPage(): HTMLElement {
   const p = page('Comportement', 'Remplacement de la barre des tâches, mode gaming et démarrage.');
 
   p.appendChild(h2('Masquage automatique'));
+  const mode = el('div', 'segmented');
+  for (const [auto, label] of [[true, 'Masquage auto'], [false, 'Épinglé']] as const) {
+    const btn = el('button', `seg${b.autoHide === auto ? ' on' : ''}`, label);
+    btn.onclick = () => {
+      cfg.behavior.autoHide = auto;
+      commit(true);
+    };
+    mode.appendChild(btn);
+  }
   const hideRows = [
     row(
-      'Masquer automatiquement le dock',
+      'Mode du dock',
       b.position === 'free'
         ? 'Indisponible en placement libre (ancre le dock sur un bord)'
-        : 'Style macOS : le dock se replie quand la souris s’en va et remonte dès qu’elle touche le bord',
-      toggle(b.autoHide, (v) => ((cfg.behavior.autoHide = v), commit(true))),
+        : b.autoHide
+          ? 'Style macOS : le dock se replie quand la souris s’en va et remonte dès qu’elle touche le bord'
+          : 'Épinglé : le dock reste toujours visible',
+      mode,
     ),
   ];
   if (b.autoHide) {
@@ -423,7 +460,7 @@ function behaviorPage(): HTMLElement {
     );
   }
   hideRows.push(
-    row('Touche Windows', 'Appuyer sur Win (ou ouvrir le menu Démarrer) fait remonter le dock', toggle(b.revealOnWinKey, (v) => ((cfg.behavior.revealOnWinKey = v), commit()))),
+    row('Touche Windows', 'Appuyer sur Win (ou ouvrir le menu Démarrer) fait remonter les docks de tous les écrans', toggle(b.revealOnWinKey, (v) => ((cfg.behavior.revealOnWinKey = v), commit()))),
   );
   p.appendChild(card(...hideRows));
 
@@ -432,7 +469,7 @@ function behaviorPage(): HTMLElement {
     card(
       row(
         'Masquer la barre des tâches Windows',
-        'REZ la remplace. Elle est restaurée automatiquement en quittant REZ (même après un crash, au lancement suivant).',
+        'REZ la remplace sur tous les écrans. Elle est restaurée automatiquement en quittant REZ (même après un crash, au lancement suivant).',
         toggle(b.hideTaskbar, (v) => ((cfg.behavior.hideTaskbar = v), commit())),
       ),
       row(
@@ -443,9 +480,20 @@ function behaviorPage(): HTMLElement {
     ),
   );
 
+  p.appendChild(h2('Écrans'));
+  p.appendChild(
+    card(
+      row(
+        'Dock sur tous les écrans',
+        'Un dock sur chaque écran connecté ; la barre Windows est masquée partout',
+        toggle(b.allMonitors, (v) => ((cfg.behavior.allMonitors = v), commit())),
+      ),
+    ),
+  );
+
   p.appendChild(h2('Mode gaming sécurisé'));
   const security = el('div', 'row stack');
-  security.innerHTML = `
+  security.innerHTML = lang() === 'en' ? SECURITY_EN : `
     <div class="text"><div class="title">${GLYPHS.shield.replace('<svg', '<svg style="width:16px;height:16px;vertical-align:-3px;margin-right:6px"')}100 % passif — compatible anti-cheat</div>
     <div class="desc">REZ n’ouvre jamais le processus d’un jeu et ne lit/écrit aucune mémoire.</div></div>
     <ul class="info-list">
@@ -507,14 +555,14 @@ function updatesPage(): HTMLElement {
       install.disabled = true;
       check.disabled = true;
       progress.style.display = '';
-      status.textContent = 'Téléchargement…';
+      status.textContent = t('Téléchargement…');
       try {
         await installUpdate(pendingUpdate, (ratio) => {
           bar.style.width = ratio === null ? '50%' : `${Math.round(ratio * 100)}%`;
-          if (ratio === 1) status.textContent = 'Installation puis redémarrage…';
+          if (ratio === 1) status.textContent = t('Installation puis redémarrage…');
         });
       } catch (e) {
-        status.textContent = `Échec : ${String(e)}`;
+        status.textContent = t('Échec : {e}', { e: String(e) });
         install.disabled = false;
         check.disabled = false;
       }
@@ -526,18 +574,18 @@ function updatesPage(): HTMLElement {
     icon: 'refresh',
     onClick: async () => {
       check.disabled = true;
-      status.textContent = 'Recherche en cours…';
+      status.textContent = t('Recherche en cours…');
       pendingUpdate = await findUpdate();
       check.disabled = false;
       if (pendingUpdate) {
-        status.textContent = `Nouvelle version disponible : v${pendingUpdate.version}`;
+        status.textContent = t('Nouvelle version disponible : v{v}', { v: pendingUpdate.version });
         install.style.display = '';
         if (pendingUpdate.body?.trim()) {
           notes.textContent = pendingUpdate.body.trim();
           notes.style.display = '';
         }
       } else {
-        status.innerHTML = '<span class="badge ok">À jour</span> Vous utilisez la dernière version.';
+        status.innerHTML = `<span class="badge ok">${t('À jour')}</span> ${t('Vous utilisez la dernière version.')}`;
         install.style.display = 'none';
         notes.style.display = 'none';
       }
@@ -569,22 +617,40 @@ function aboutPage(): HTMLElement {
   const txt = el('div');
   const name = el('div', 'name', 'REZ');
   const v = el('div', 'desc', 'Dock Expo-Glass pour Windows');
-  void getVersion().then((ver) => (v.textContent = `Dock Expo-Glass pour Windows · v${ver}`));
+  void getVersion().then((ver) => (v.textContent = t('Dock Expo-Glass pour Windows · v{v}', { v: ver })));
   txt.append(name, v);
   hero.append(logo, txt);
   p.appendChild(card(hero));
 
   p.appendChild(h2('Technologie'));
   const info = el('div', 'row stack');
-  info.innerHTML = `<ul class="info-list">
+  info.innerHTML = lang() === 'en' ? TECH_EN : `<ul class="info-list">
     <li><b>Tauri 2 + Rust</b> : binaire natif léger, WebView2 système.</li>
     <li><b>Verre natif</b> : fenêtre DWM (blur/acrylique) dont la forme suit la barre en temps réel.</li>
+    <li><b>Multi-écran</b> : un dock par écran, barre Windows masquée partout sans toucher au bureau (compatible Wallpaper Engine).</li>
     <li><b>Icônes cachées</b> : registre <span class="mono">NotifyIconSettings</span> + liste des processus — aucune lecture mémoire d’explorer.</li>
     <li><b>Mises à jour</b> : releases GitHub signées (minisign), installeur NSIS sans droits admin.</li>
   </ul>`;
   p.appendChild(card(info));
   return p;
 }
+
+const SECURITY_EN = `
+    <div class="text"><div class="title">${GLYPHS.shield.replace('<svg', '<svg style="width:16px;height:16px;vertical-align:-3px;margin-right:6px"')}100% passive — anti-cheat friendly</div>
+    <div class="desc">REZ never opens a game's process and never reads or writes any memory.</div></div>
+    <ul class="info-list">
+      <li><b>Detection</b>: <span class="mono">GetForegroundWindow</span>, <span class="mono">GetClientRect</span>, <span class="mono">MonitorFromWindow</span>, <span class="mono">SHQueryUserNotificationState</span> (public window APIs).</li>
+      <li><b>No</b> keyboard/mouse hook, no DLL injection, no <span class="mono">ReadProcessMemory</span>, no in-game overlay.</li>
+      <li><b>In full screen</b>: the dock slides off screen, then its windows are really hidden; all window enumeration is paused.</li>
+    </ul>`;
+
+const TECH_EN = `<ul class="info-list">
+    <li><b>Tauri 2 + Rust</b>: light native binary, system WebView2.</li>
+    <li><b>Native glass</b>: DWM window (blur/acrylic) whose shape follows the bar in real time.</li>
+    <li><b>Multi-screen</b>: one dock per screen, Windows taskbar hidden everywhere without touching the desktop (Wallpaper Engine safe).</li>
+    <li><b>Hidden icons</b>: <span class="mono">NotifyIconSettings</span> registry + process list — no reading of explorer's memory.</li>
+    <li><b>Updates</b>: signed GitHub releases (minisign), NSIS installer without admin rights.</li>
+  </ul>`;
 
 // ------------------------------------------------------------------ Utils
 
@@ -596,7 +662,7 @@ function px(v: number): string {
 }
 function blurLabel(v: number): string {
   if (v <= 0.5) return 'Off';
-  return v < 50 ? `Flou ${Math.round(v)}` : `Acryl. ${Math.round(v)}`;
+  return v < 50 ? `${t('Flou')} ${Math.round(v)}` : `Acryl. ${Math.round(v)}`;
 }
 function hexRgb(hex: string): string {
   const h = normalizeHex(hex).slice(1);
@@ -614,6 +680,9 @@ document.addEventListener('contextmenu', (e) => {
 
 async function init(): Promise<void> {
   cfg = mergeConfig(await api.getConfig());
+  setLang(cfg.behavior.language);
+  document.title = t('REZ — Réglages');
+  autoTranslate(document.body);
   applyAppearance(cfg);
   renderNav();
   renderSection();

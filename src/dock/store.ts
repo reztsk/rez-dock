@@ -1,4 +1,9 @@
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api } from '../shared/api';
+
+/** Label de cette fenêtre : `dock` (écran principal) ou `dock-1`, `dock-2`… (autres écrans). */
+export const LABEL = getCurrentWindow().label;
+export const IS_PRIMARY = LABEL === 'dock';
 import type { DockItem, RezConfig, WinInfo } from '../shared/types';
 
 /** État du dock (source de vérité côté fenêtre dock). */
@@ -26,7 +31,7 @@ export function updateConfig(mutate: (c: RezConfig) => void): void {
   const next: RezConfig = structuredClone(store.config);
   mutate(next);
   store.config = next;
-  void api.saveConfig(next, 'dock', true);
+  void api.saveConfig(next, LABEL, true);
   notify();
 }
 

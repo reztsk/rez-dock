@@ -58,6 +58,10 @@ pub fn gaming_mode() -> bool {
 pub fn auto_hide() -> bool {
     bool_at("/behavior/autoHide", true)
 }
+/// Un dock sur chaque écran (défaut : activé).
+pub fn all_monitors() -> bool {
+    bool_at("/behavior/allMonitors", true)
+}
 pub fn autostart() -> bool {
     bool_at("/behavior/autostart", false)
 }
@@ -100,6 +104,7 @@ pub fn native_fingerprint(v: &Value) -> String {
         "/behavior/hideTaskbar",
         "/behavior/reserveSpace",
         "/behavior/autoHide",
+        "/behavior/allMonitors",
         "/behavior/bottomMargin",
         "/behavior/autostart",
         "/behavior/gamingMode",

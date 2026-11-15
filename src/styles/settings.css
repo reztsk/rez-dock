@@ -815,3 +815,32 @@ select option {
   background: linear-gradient(135deg, var(--accent), rgba(var(--accent-rgb), 0.7));
   box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.45);
 }
+
+/* Bas de la barre latérale : langue, profil GitHub, version */
+.nav-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lang-select {
+  width: 100%;
+}
+.gh-link {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 12px;
+  border-radius: 8px;
+  padding: 4px 2px;
+  transition: color 0.15s;
+}
+.gh-link:hover {
+  color: var(--text, #fff);
+}
+.gh-link svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}

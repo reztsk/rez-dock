@@ -9,9 +9,13 @@ pub mod taskbar;
 pub mod tray;
 pub mod windows;
 
-use ::windows::Win32::Foundation::{HWND, RECT};
-use ::windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTOPRIMARY};
+use ::windows::core::BOOL;
+use ::windows::Win32::Foundation::{HWND, LPARAM, RECT};
+use ::windows::Win32::Graphics::Gdi::{
+    EnumDisplayMonitors, GetMonitorInfoW, MonitorFromPoint, HDC, HMONITOR, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
+};
 use ::windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+use ::windows::Win32::UI::WindowsAndMessaging::MONITORINFOF_PRIMARY;
 use std::ffi::c_void;
 
 #[inline]
@@ -29,10 +33,17 @@ pub fn from_wide(buf: &[u16]) -> String {
     String::from_utf16_lossy(&buf[..end])
 }
 
-/// Écran principal : (rect moniteur, rect zone de travail, échelle DPI).
-pub fn primary_monitor() -> (RECT, RECT, f64) {
+/// Un écran : rect moniteur, zone de travail, échelle DPI.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Monitor {
+    pub rect: RECT,
+    pub work: RECT,
+    pub scale: f64,
+    pub primary: bool,
+}
+
+fn monitor_info(mon: HMONITOR) -> Monitor {
     unsafe {
-        let mon = MonitorFromPoint(Default::default(), MONITOR_DEFAULTTOPRIMARY);
         let mut mi = MONITORINFO {
             cbSize: std::mem::size_of::<MONITORINFO>() as u32,
             ..Default::default()
@@ -44,6 +55,32 @@ pub fn primary_monitor() -> (RECT, RECT, f64) {
         } else {
             1.0
         };
-        (mi.rcMonitor, mi.rcWork, scale)
+        Monitor { rect: mi.rcMonitor, work: mi.rcWork, scale, primary: mi.dwFlags & MONITORINFOF_PRIMARY != 0 }
     }
+}
+
+/// Écran principal : (rect moniteur, rect zone de travail, échelle DPI).
+pub fn primary_monitor() -> (RECT, RECT, f64) {
+    let m = unsafe { monitor_info(MonitorFromPoint(Default::default(), MONITOR_DEFAULTTOPRIMARY)) };
+    (m.rect, m.work, m.scale)
+}
+
+unsafe extern "system" fn enum_cb(mon: HMONITOR, _: HDC, _: *mut RECT, lp: LPARAM) -> BOOL {
+    let list = &mut *(lp.0 as *mut Vec<Monitor>);
+    list.push(monitor_info(mon));
+    BOOL(1)
+}
+
+/// Tous les écrans connectés : principal en premier, puis de gauche à droite.
+pub fn monitors() -> Vec<Monitor> {
+    let mut list: Vec<Monitor> = Vec::new();
+    unsafe {
+        let _ = EnumDisplayMonitors(None, None, Some(enum_cb), LPARAM(&mut list as *mut _ as isize));
+    }
+    list.sort_by_key(|m| (!m.primary, m.rect.left, m.rect.top));
+    if list.is_empty() {
+        let (rect, work, scale) = primary_monitor();
+        list.push(Monitor { rect, work, scale, primary: true });
+    }
+    list
 }

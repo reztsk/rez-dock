@@ -2,6 +2,7 @@
 
 use serde_json::{json, Value};
 use std::sync::atomic::Ordering;
+use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_autostart::ManagerExt;
 
@@ -18,19 +19,24 @@ pub fn get_config() -> Value {
 #[tauri::command]
 pub fn save_config(app: AppHandle, config: Value, source: String, persist: Option<bool>) -> Result<(), String> {
     let persist = persist.unwrap_or(true);
-    let previous = std::mem::replace(&mut *SHARED.config.lock().unwrap(), config.clone());
+    *SHARED.config.lock().unwrap() = config.clone();
     let _ = app.emit("config-changed", json!({ "config": config, "source": source }));
     if persist {
         config::write(&app, &config)?;
-        if config::native_fingerprint(&previous) != config::native_fingerprint(&config) {
+        // Comparé au dernier état natif APPLIQUÉ (l'aperçu live a déjà remplacé la config en mémoire).
+        if *APPLIED.lock().unwrap() != config::native_fingerprint(&config) {
             apply_native(&app);
         }
     }
     Ok(())
 }
 
-/// Applique les réglages natifs (barre Windows, verre, démarrage auto).
+/// Empreinte des réglages natifs actuellement appliqués.
+static APPLIED: Mutex<String> = Mutex::new(String::new());
+
+/// Applique les réglages natifs (barres Windows, docks par écran, verre, démarrage auto).
 pub fn apply_native(app: &AppHandle) {
+    *APPLIED.lock().unwrap() = config::native_fingerprint(&SHARED.config.lock().unwrap());
     dock::layout(app);
     glass::set_mode(glass::BlurMode::from_intensity(config::blur()));
     let auto = app.autolaunch();
@@ -125,13 +131,13 @@ pub fn kill_processes(pids: Vec<u32>) -> usize {
 }
 
 #[tauri::command]
-pub fn set_surfaces(glass: Vec<Surface>, hit: Vec<Surface>, reveal: Option<Vec<Surface>>) {
-    dock::set_surfaces(&glass, &hit, &reveal.unwrap_or_default());
+pub fn set_surfaces(window: tauri::WebviewWindow, glass: Vec<Surface>, hit: Vec<Surface>, reveal: Option<Vec<Surface>>) {
+    dock::set_surfaces(window.label(), &glass, &hit, &reveal.unwrap_or_default());
 }
 
 #[tauri::command]
-pub fn get_layout() -> dock::Insets {
-    dock::insets()
+pub fn get_layout(window: tauri::WebviewWindow) -> dock::Insets {
+    dock::insets_for(window.label())
 }
 
 #[tauri::command]
