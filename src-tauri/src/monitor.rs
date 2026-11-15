@@ -1,6 +1,7 @@
 //! Threads de fond :
 //!  - `tick` (250 ms) : mode gaming (plein écran), liste des fenêtres, maintien barre native masquée.
-//!  - `hit`  (16 ms)  : click-through hors des zones du dock + suivi de la fenêtre active.
+//!  - `hit`  (16 ms)  : click-through hors des zones du dock, suivi de la fenêtre active,
+//!                     zone de réveil du masquage auto, touche Windows (GetAsyncKeyState, sans hook).
 //!
 //! Mode gaming = 100 % passif : GetForegroundWindow + GetClientRect + MonitorInfo +
 //! SHQueryUserNotificationState. Aucun handle sur le jeu, aucun hook, aucune lecture mémoire.
@@ -11,7 +12,8 @@ use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
-use windows::Win32::Foundation::{POINT, RECT};
+use windows::Win32::Foundation::{HWND, POINT, RECT};
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LWIN, VK_RWIN};
 use windows::Win32::Graphics::Gdi::{ClientToScreen, GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
 use windows::Win32::UI::Shell::{SHQueryUserNotificationState, QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN};
 use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, GetCursorPos, GetForegroundWindow, IsWindowVisible};
@@ -137,8 +139,8 @@ fn tick_loop(app: AppHandle) {
             }
         }
 
-        // --- Barre native masquée / zone de travail ---
-        if tick % 2 == 0 {
+        // --- Barre native masquée / zone de travail (contrôle doux : 1 s, n'agit que si besoin) ---
+        if tick % 4 == 0 {
             taskbar::enforce();
         }
 
@@ -154,9 +156,38 @@ fn tick_loop(app: AppHandle) {
     }
 }
 
+/// Menu Démarrer / Recherche / Centre de notifications au premier plan ?
+/// (vérifié seulement quand la fenêtre active change : coût nul le reste du temps)
+fn is_shell_flyout(fg: HWND) -> bool {
+    let class = wins::class_name(fg);
+    match class.as_str() {
+        "XamlExplorerHostIslandWindow" => true,
+        "Windows.UI.Core.CoreWindow" => {
+            let exe = wins::exe_of_pid(wins::pid_of(fg)).unwrap_or_default().to_ascii_lowercase();
+            ["startmenuexperiencehost.exe", "searchhost.exe", "searchapp.exe", "shellexperiencehost.exe"]
+                .iter()
+                .any(|n| exe.ends_with(n))
+        }
+        _ => false,
+    }
+}
+
+/// Touche Windows enfoncée ? GetAsyncKeyState = simple lecture de l'état du clavier
+/// (aucun hook, aucune injection) — et jamais appelé pendant un jeu plein écran.
+fn win_key_down() -> bool {
+    unsafe { (GetAsyncKeyState(VK_LWIN.0 as i32) as u16 & 0x8000) != 0 || (GetAsyncKeyState(VK_RWIN.0 as i32) as u16 & 0x8000) != 0 }
+}
+
+fn in_rects(list: &[crate::state::ScreenRect], pt: POINT) -> bool {
+    list.iter().any(|&(l, t, r, b)| pt.x >= l && pt.x < r && pt.y >= t && pt.y < b)
+}
+
 fn hit_loop(app: AppHandle) {
     let own = std::process::id();
     let mut last_inside = false;
+    let mut last_reveal = false;
+    let mut last_shell = false;
+    let mut flyout = false;
     let mut last_fg_raw: isize = 0;
     let Some(dock_win) = app.get_webview_window("dock") else { return };
 
@@ -164,6 +195,8 @@ fn hit_loop(app: AppHandle) {
         thread::sleep(Duration::from_millis(16));
         if SHARED.gaming.load(Ordering::Relaxed) {
             last_inside = false;
+            last_reveal = false;
+            last_shell = false;
             continue;
         }
         unsafe {
@@ -175,22 +208,31 @@ fn hit_loop(app: AppHandle) {
                 if !fg.is_invalid() && wins::pid_of(fg) != own {
                     SHARED.last_fg.store(raw, Ordering::Relaxed);
                 }
+                flyout = !fg.is_invalid() && is_shell_flyout(fg);
+            }
+
+            // Touche Win / menu Démarrer ouvert → le dock remonte (masquage auto).
+            let shell = flyout || win_key_down();
+            if shell != last_shell {
+                last_shell = shell;
+                let _ = app.emit_to("dock", "shell-reveal", shell);
             }
 
             let mut pt = POINT::default();
             if GetCursorPos(&mut pt).is_err() {
                 continue;
             }
-            let inside = SHARED
-                .hit
-                .lock()
-                .unwrap()
-                .iter()
-                .any(|&(l, t, r, b)| pt.x >= l && pt.x < r && pt.y >= t && pt.y < b);
+            let inside = in_rects(&SHARED.hit.lock().unwrap(), pt);
             if inside != last_inside {
                 last_inside = inside;
                 let _ = dock_win.set_ignore_cursor_events(!inside);
                 let _ = app.emit_to("dock", "cursor-inside", inside);
+            }
+            // Zone de réveil (bord d'écran / petit trait) : n'intercepte aucun clic.
+            let reveal = in_rects(&SHARED.reveal.lock().unwrap(), pt);
+            if reveal != last_reveal {
+                last_reveal = reveal;
+                let _ = app.emit_to("dock", "reveal-zone", reveal);
             }
         }
     }

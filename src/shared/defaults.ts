@@ -28,14 +28,14 @@ export const MODULES: Record<ModuleType, ModuleMeta> = {
 };
 
 export const DEFAULT_APPEARANCE: Appearance = {
-  // Préréglage "discret" : barre fine (50 px), centrée en bas.
+  // Préréglage "ultra-discret" : barre fine (44 px), centrée en bas, masquée automatiquement.
   scale: 1,
-  iconSize: 38,
-  magnification: 1.6,
+  iconSize: 34,
+  magnification: 1.65,
   magnifyRange: 2.8,
-  spacing: 5,
-  padding: 6,
-  radius: 16,
+  spacing: 4,
+  padding: 5,
+  radius: 14,
   blur: 45,
   tint: '#14131f',
   opacity: 0.38,
@@ -50,12 +50,16 @@ export const DEFAULT_BEHAVIOR: Behavior = {
   position: 'bottom',
   freeX: 0.5,
   freeY: 0.85,
+  autoHide: true,
+  autoHideDelay: 600,
+  peekLine: true,
+  revealOnWinKey: true,
   hideTaskbar: true,
   reserveSpace: true,
   gamingMode: true,
   autostart: false,
   checkUpdates: true,
-  bottomMargin: 8,
+  bottomMargin: 6,
   clock24h: true,
   clockSeconds: false,
 };

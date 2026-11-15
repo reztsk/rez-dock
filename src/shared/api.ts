@@ -24,7 +24,7 @@ export const api = {
   backgroundProcesses: () => invoke<BgProcess[]>('get_background_processes'),
   killProcesses: (pids: number[]) => invoke<number>('kill_processes', { pids }),
 
-  setSurfaces: (glass: Surface[], hit: Surface[]) => invoke<void>('set_surfaces', { glass, hit }),
+  setSurfaces: (glass: Surface[], hit: Surface[], reveal: Surface[] = []) => invoke<void>('set_surfaces', { glass, hit, reveal }),
   isGaming: () => invoke<boolean>('is_gaming'),
   openSettings: () => invoke<void>('open_settings'),
   prepareUpdate: () => invoke<void>('prepare_update'),

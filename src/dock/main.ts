@@ -6,6 +6,7 @@ import { defaultConfig, mergeConfig, pinnedItem } from '../shared/defaults';
 import { applyAppearance } from '../shared/theme';
 import type { ConfigChanged, WinInfo } from '../shared/types';
 import { context, dockContext, middle, primary } from './actions';
+import * as autohide from './autohide';
 import { clickSuppressed, onPointerDown } from './drag';
 import { hoverZone, measure, setHover, syncSurfaces, wake } from './engine';
 import { applyLayout, axis, layout, nearestEdge, setAnchor, vertical, type Insets } from './layout';
@@ -32,13 +33,16 @@ function scheduleRender(): void {
   });
 }
 
-function setHidden(hidden: boolean): void {
+function setHidden(hidden: boolean, intro = false): void {
+  // Retour de plein écran : le dock reste replié (seul le trait réapparaît).
+  if (!hidden && !intro) autohide.hideNow();
   store.hidden = hidden;
   dockEl.classList.toggle('hidden', hidden);
   if (hidden) {
     closePopover(true);
     setHover(false);
   }
+  autohide.syncPeek();
   wake(700);
 }
 
@@ -67,6 +71,8 @@ async function init(): Promise<void> {
     applyLayout();
     updateClocks();
     scheduleRender();
+    autohide.syncPeek();
+    autohide.evaluate();
   });
   setLabelListener(scheduleRender);
   render();
@@ -82,7 +88,11 @@ async function init(): Promise<void> {
   });
   await listen<boolean>('cursor-inside', (e) => {
     if (!e.payload) setHover(false);
+    autohide.setInside(e.payload);
   });
+  // Masquage auto : souris collée au bord (zone de réveil) / touche Windows ou menu Démarrer.
+  await listen<boolean>('reveal-zone', (e) => autohide.setZone(e.payload));
+  await listen<boolean>('shell-reveal', (e) => autohide.setShell(e.payload));
   await listen<boolean>('gaming', (e) => setHidden(e.payload));
   await listen<Insets>('layout-changed', (e) => {
     layout.insets = e.payload;
@@ -94,10 +104,13 @@ async function init(): Promise<void> {
     const p = e.payload;
     if (p.type === 'over' || p.type === 'enter') {
       dockEl.classList.add('file-over');
+      autohide.evaluate();
     } else if (p.type === 'leave') {
       dockEl.classList.remove('file-over');
+      autohide.evaluate();
     } else if (p.type === 'drop') {
       dockEl.classList.remove('file-over');
+      autohide.evaluate();
       const r = window.devicePixelRatio;
       const pos = axis(p.position.x / r, p.position.y / r);
       const infos = await Promise.all(p.paths.map((path) => api.appInfo(path)));
@@ -108,9 +121,15 @@ async function init(): Promise<void> {
     }
   });
 
-  // Animation d'entrée (slide + fade) une fois le premier rendu posé.
+  // Animation d'entrée (slide + fade) une fois le premier rendu posé ; puis repli auto après 1,6 s
+  // (l'utilisateur voit que le dock est là).
   const gaming = await api.isGaming().catch(() => false);
-  requestAnimationFrame(() => setTimeout(() => setHidden(gaming), 60));
+  requestAnimationFrame(() =>
+    setTimeout(() => {
+      setHidden(gaming, true);
+      autohide.evaluate(1600);
+    }, 60),
+  );
 
   if (store.config.behavior.checkUpdates && !import.meta.env.DEV) {
     setTimeout(() => void checkAtStartup(), 6000);
@@ -187,6 +206,7 @@ function endMove(e: PointerEvent): void {
   move = null;
   if (!m.active) return;
   store.dragging = false;
+  autohide.evaluate();
   dockEl.classList.remove('moving', 'snap-hint');
   const snap = nearestEdge(e.clientX, e.clientY);
   const r = dockEl.getBoundingClientRect();
@@ -209,7 +229,7 @@ window.addEventListener('pointercancel', endMove);
 document.addEventListener('contextmenu', (e) => e.preventDefault());
 
 document.addEventListener('mousemove', (e) => {
-  if (store.hidden || move?.active) return;
+  if (store.hidden || store.autoHidden || move?.active) return;
   const z = hoverZone();
   const inside = e.clientX >= z.left && e.clientX <= z.right && e.clientY >= z.top && e.clientY <= z.bottom;
   setHover(inside, axis(e.clientX, e.clientY));

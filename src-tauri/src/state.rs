@@ -35,6 +35,9 @@ pub struct Shared {
     pub bounds: Mutex<Bounds>,
     /// Zones où le dock capte la souris (le reste est click-through).
     pub hit: Mutex<Vec<ScreenRect>>,
+    /// Zones de réveil du masquage auto (bord d'écran + petit trait) : survol = le dock remonte.
+    /// Ne captent PAS la souris (les clics passent aux fenêtres dessous).
+    pub reveal: Mutex<Vec<ScreenRect>>,
     /// Mode gaming actif (jeu plein écran détecté) → dock masqué, polling suspendu.
     pub gaming: AtomicBool,
     /// Dernière fenêtre au premier plan qui n'appartient pas à REZ.
@@ -47,6 +50,7 @@ pub static SHARED: LazyLock<Shared> = LazyLock::new(|| Shared {
     config: Mutex::new(serde_json::Value::Null),
     bounds: Mutex::new(Bounds::default()),
     hit: Mutex::new(Vec::new()),
+    reveal: Mutex::new(Vec::new()),
     gaming: AtomicBool::new(false),
     last_fg: AtomicIsize::new(0),
     windows: Mutex::new(Vec::new()),

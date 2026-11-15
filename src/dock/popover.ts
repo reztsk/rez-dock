@@ -40,6 +40,7 @@ export function openPopover(content: HTMLElement, anchor: HTMLElement | number, 
   el.addEventListener('contextmenu', (e) => e.preventDefault());
   layer.appendChild(el);
   current = { el, persistent: !!opts.persistent, owner: opts.owner ?? '', anchor, onClose: opts.onClose };
+  window.dispatchEvent(new Event('rez-popover'));
   place(el, anchor);
   requestAnimationFrame(() => {
     el.classList.add('show');

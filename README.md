@@ -13,8 +13,9 @@ Pas besoin de droits admin. REZ se met à jour tout seul : une notification s'af
 
 | | |
 |---|---|
-| **Remplace la barre Windows** | `Shell_TrayWnd` masquée dès le lancement, zone de travail réservée au dock, barre native restaurée à l'identique en quittant. Démarrage auto avec Windows en option. |
-| **Compact & libre** | Préréglage discret (barre de 50 px, centrée en bas), échelle globale 50–250 %, bord Bas/Haut/Gauche/Droite ou placement libre (glisser le fond du dock, aimantation aux bords). |
+| **Remplace la barre Windows** | `Shell_TrayWnd` (écran principal) masquée dès le lancement, barre native restaurée à l'identique en quittant. Mode doux compatible Wallpaper Engine : aucune diffusion système, seules les fenêtres maximisées sont notifiées, barres des écrans secondaires intactes. Démarrage auto avec Windows en option. |
+| **Masquage auto (style macOS)** | Le dock se replie quand la souris s'en va ; un petit trait lumineux reste au bord. Souris au bord → il remonte. **Touche Windows** (ou menu Démarrer ouvert) → il remonte aussi. Délai réglable. |
+| **Compact & libre** | Préréglage ultra-discret (barre de 44 px, centrée en bas), échelle globale 50–250 %, bord Bas/Haut/Gauche/Droite ou placement libre (glisser le fond du dock, aimantation aux bords). |
 | **Bouton Démarrer** | Logo Windows minimaliste → ouvre le vrai menu Démarrer. |
 | **Expo-Glass** | Vrai flou du bureau (fenêtre DWM blur/acrylique dont la forme suit la barre en temps réel) + teinte, reflets, bordure néon en CSS. |
 | **Magnification** | Vague cosinus façon macOS, lissage indépendant du framerate, boucle rAF qui s'arrête au repos (0 % CPU). |
@@ -110,7 +111,9 @@ Bump des 3 fichiers de version → commit → tag → push → build + release a
 
 - **Barre des tâches Windows disparue après un arrêt forcé de REZ** : relancer REZ (l'état d'origine est restauré au démarrage puis réappliqué), ou décocher *Masquer la barre des tâches*, ou redémarrer l'Explorateur (`taskkill /f /im explorer.exe` puis `start explorer`).
 - **Pas de flou** : *Réglages → Apparence → Intensité du flou* > 0, et *Paramètres Windows → Personnalisation → Couleurs → Effets de transparence* activé.
-- **Multi-écrans** : le dock s'affiche sur l'écran principal.
+- **Multi-écrans** : le dock s'affiche sur l'écran principal ; les barres Windows des autres écrans restent en place.
+- **Wallpaper Engine / Lively** : REZ ne leur envoie aucun message. En cas de souci, décocher *Masquer la barre des tâches* : REZ flotte alors au-dessus sans toucher à rien.
+- **Touche Windows** : lue par `GetAsyncKeyState` (aucun hook clavier), jamais pendant un jeu plein écran.
 
 ## Licence
 

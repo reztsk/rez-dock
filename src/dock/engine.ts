@@ -9,6 +9,7 @@
 import { api } from '../shared/api';
 import { eff } from '../shared/theme';
 import type { Surface } from '../shared/types';
+import { revealZones } from './autohide';
 import { anchor, layout, vertical } from './layout';
 import { store } from './store';
 
@@ -221,7 +222,7 @@ export function syncSurfaces(force = false): void {
   if (onScreen(bar) && Number(getComputedStyle(dockEl).opacity) > 0.05) {
     const r = Math.min(eff(store.config.appearance).radius, bar.height / 2, bar.width / 2);
     glass.push({ x: bar.left, y: bar.top, w: bar.width, h: bar.height, r });
-    if (!store.hidden) {
+    if (!store.hidden && !store.autoHidden) {
       const z = hoverZone();
       hit.push({ x: z.x, y: z.y, w: z.width, h: z.height, r: 0 });
     }
@@ -235,8 +236,9 @@ export function syncSurfaces(force = false): void {
   }
   const g = glass.map(round);
   const h = hit.map(round);
-  const key = JSON.stringify([g, h]);
+  const v = revealZones().map(round);
+  const key = JSON.stringify([g, h, v]);
   if (!force && key === lastSurfaces) return;
   lastSurfaces = key;
-  void api.setSurfaces(g, h);
+  void api.setSurfaces(g, h, v);
 }

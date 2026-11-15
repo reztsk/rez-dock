@@ -125,8 +125,8 @@ pub fn kill_processes(pids: Vec<u32>) -> usize {
 }
 
 #[tauri::command]
-pub fn set_surfaces(glass: Vec<Surface>, hit: Vec<Surface>) {
-    dock::set_surfaces(&glass, &hit);
+pub fn set_surfaces(glass: Vec<Surface>, hit: Vec<Surface>, reveal: Option<Vec<Surface>>) {
+    dock::set_surfaces(&glass, &hit, &reveal.unwrap_or_default());
 }
 
 #[tauri::command]

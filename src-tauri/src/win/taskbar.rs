@@ -1,10 +1,20 @@
-//! Masquage réversible de la barre des tâches native + réservation de la zone de travail.
-//! L'état d'origine est sauvegardé sur disque : restauré même après un arrêt brutal (au lancement suivant).
+//! Masquage réversible de la barre des tâches native + zone de travail — version "douce".
+//!
+//! Compatibilité Wallpaper Engine / multi-écran :
+//!  - un seul `ShowWindow(SW_HIDE)` sur la barre PRINCIPALE (les barres des écrans secondaires
+//!    ne sont jamais touchées) ; ensuite, simple vérification toutes les secondes ;
+//!  - la zone de travail est posée SANS diffusion globale : ni explorer ni le fond d'écran animé
+//!    (Wallpaper Engine, Lively…) ne reçoivent de WM_SETTINGCHANGE. Seules les fenêtres
+//!    maximisées sont notifiées pour s'ajuster ;
+//!  - correction de zone de travail limitée à une fois toutes les 3 s (jamais de ping-pong).
+//!
+//! L'état d'origine est sauvegardé sur disque : restauré même après un arrêt brutal.
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use windows::core::{BOOL, HSTRING};
 use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::UI::Shell::{SHAppBarMessage, APPBARDATA};
@@ -16,6 +26,7 @@ const ABM_GETSTATE: u32 = 4;
 const ABM_SETSTATE: u32 = 10;
 const ABS_AUTOHIDE: u32 = 1;
 const ABS_ALWAYSONTOP: u32 = 2;
+const FIX_INTERVAL: Duration = Duration::from_secs(3);
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 struct Saved {
@@ -26,6 +37,7 @@ struct Saved {
 static FILE: OnceLock<PathBuf> = OnceLock::new();
 static SAVED: Mutex<Option<Saved>> = Mutex::new(None);
 static DESIRED: Mutex<Option<RECT>> = Mutex::new(None);
+static LAST_FIX: Mutex<Option<Instant>> = Mutex::new(None);
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 
 pub fn init(state_file: PathBuf) {
@@ -42,31 +54,15 @@ pub fn is_active() -> bool {
     ACTIVE.load(Ordering::Relaxed)
 }
 
-unsafe extern "system" fn collect_cb(h: HWND, lp: LPARAM) -> BOOL {
-    let list = &mut *(lp.0 as *mut Vec<HWND>);
-    if super::windows::class_name(h) == "Shell_SecondaryTrayWnd" {
-        list.push(h);
-    }
-    BOOL(1)
-}
-
-fn tray_windows() -> Vec<HWND> {
-    let mut list = Vec::new();
-    unsafe {
-        if let Ok(main) = FindWindowW(&HSTRING::from("Shell_TrayWnd"), None) {
-            if !main.is_invalid() {
-                list.push(main);
-            }
-        }
-        let _ = EnumWindows(Some(collect_cb), LPARAM(&mut list as *mut _ as isize));
-    }
-    list
+/// Barre principale uniquement (écran principal, celui du dock).
+fn main_tray() -> Option<HWND> {
+    unsafe { FindWindowW(&HSTRING::from("Shell_TrayWnd"), None).ok().filter(|h| !h.is_invalid()) }
 }
 
 fn appbar(msg: u32, state: u32) -> u32 {
     let mut data = APPBARDATA {
         cbSize: std::mem::size_of::<APPBARDATA>() as u32,
-        hWnd: tray_windows().first().copied().unwrap_or_default(),
+        hWnd: main_tray().unwrap_or_default(),
         lParam: LPARAM(state as isize),
         ..Default::default()
     };
@@ -82,31 +78,30 @@ fn get_work_area() -> RECT {
 }
 
 /// Pose la zone de travail.
-/// `broadcast = true` (restauration) : WM_SETTINGCHANGE global → explorer recalcule sa propre zone.
-/// `broadcast = false` (REZ actif) : explorer n'est PAS notifié (sinon il ré-impose ses 48 px
-/// en ~200 ms et les deux se battent) ; seules les autres fenêtres le sont, pour que les
-/// fenêtres maximisées s'ajustent au dock.
+/// `broadcast = true` (restauration uniquement) : WM_SETTINGCHANGE global → explorer recalcule.
+/// `broadcast = false` (REZ actif) : aucune diffusion ; seules les fenêtres maximisées sont prévenues.
 fn set_work_area(mut rc: RECT, broadcast: bool) {
     unsafe {
         let flags = if broadcast { SPIF_SENDCHANGE } else { SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0) };
         let _ = SystemParametersInfoW(SPI_SETWORKAREA, 0, Some(&mut rc as *mut _ as *mut _), flags);
     }
     if !broadcast {
-        notify_apps();
+        notify_maximized();
     }
 }
 
 unsafe extern "system" fn notify_cb(h: HWND, lp: LPARAM) -> BOOL {
     let explorer = lp.0 as u32;
-    if IsWindowVisible(h).as_bool() && super::windows::pid_of(h) != explorer {
+    // Fenêtres maximisées seulement : un fond d'écran animé n'est jamais "maximisé" → jamais dérangé.
+    if IsWindowVisible(h).as_bool() && IsZoomed(h).as_bool() && super::windows::pid_of(h) != explorer {
         let _ = SendNotifyMessageW(h, WM_SETTINGCHANGE, WPARAM(SPI_SETWORKAREA.0 as usize), LPARAM(0));
     }
     BOOL(1)
 }
 
-/// WM_SETTINGCHANGE(SPI_SETWORKAREA) non bloquant à toutes les fenêtres visibles sauf explorer.
-fn notify_apps() {
-    let explorer = tray_windows().first().map(|&h| super::windows::pid_of(h)).unwrap_or(0);
+/// WM_SETTINGCHANGE(SPI_SETWORKAREA) non bloquant aux fenêtres maximisées (hors explorer).
+fn notify_maximized() {
+    let explorer = main_tray().map(super::windows::pid_of).unwrap_or(0);
     unsafe {
         let _ = EnumWindows(Some(notify_cb), LPARAM(explorer as isize));
     }
@@ -128,21 +123,33 @@ fn persist(saved: Option<Saved>) {
     }
 }
 
+fn fix_work_area(desired: RECT, force: bool) {
+    if get_work_area() == desired {
+        return;
+    }
+    let mut last = LAST_FIX.lock().unwrap();
+    if !force && last.is_some_and(|t| t.elapsed() < FIX_INTERVAL) {
+        return; // Explorer vient de la changer : on n'entre pas dans un ping-pong.
+    }
+    *last = Some(Instant::now());
+    set_work_area(desired, false);
+}
+
 /// Masque la barre native (instantané) et réserve `reserve` px physiques le long de `edge`
-/// sur l'écran principal (0 ou mode libre = aucune réservation).
+/// sur l'écran principal (0, masquage auto ou mode libre = aucune réservation).
 pub fn apply(hide: bool, edge: Edge, reserve: i32, monitor: RECT) {
     if !hide {
         restore();
         return;
     }
-    // 1. Masquage immédiat de Shell_TrayWnd (+ barres secondaires multi-écrans).
-    for w in tray_windows() {
+    // 1. Masquage immédiat de Shell_TrayWnd (écran principal seulement).
+    if let Some(w) = main_tray() {
         unsafe {
             let _ = ShowWindow(w, SW_HIDE);
         }
     }
-    // 2. Sauvegarde de l'état d'origine (une seule fois). L'auto-masquage natif est COUPÉ pendant
-    //    que REZ tourne : avec lui, explorer ré-affiche Shell_TrayWnd en permanence.
+    // 2. Sauvegarde de l'état d'origine (une seule fois). Si l'auto-masquage natif est actif,
+    //    il est coupé pendant que REZ tourne (sinon explorer ré-affiche sa barre sans arrêt).
     {
         let mut saved = SAVED.lock().unwrap();
         if saved.is_none() {
@@ -155,11 +162,11 @@ pub fn apply(hide: bool, edge: Edge, reserve: i32, monitor: RECT) {
             persist(Some(s));
         }
         let original = saved.unwrap().appbar_state;
-        if original & ABS_AUTOHIDE != 0 || appbar(ABM_GETSTATE, 0) & ABS_AUTOHIDE != 0 {
+        if appbar(ABM_GETSTATE, 0) & ABS_AUTOHIDE != 0 {
             appbar(ABM_SETSTATE, original & ABS_ALWAYSONTOP);
         }
     }
-    // 3. Zone de travail : les fenêtres maximisées s'arrêtent au bord du dock.
+    // 3. Zone de travail.
     let r = reserve.max(0);
     let desired = match edge {
         Edge::Bottom => RECT { bottom: monitor.bottom - r, ..monitor },
@@ -169,18 +176,16 @@ pub fn apply(hide: bool, edge: Edge, reserve: i32, monitor: RECT) {
         Edge::Free => monitor,
     };
     *DESIRED.lock().unwrap() = Some(desired);
-    if get_work_area() != desired {
-        set_work_area(desired, false);
-    }
+    fix_work_area(desired, true);
     ACTIVE.store(true, Ordering::Relaxed);
 }
 
-/// Appelé périodiquement : explorer réaffiche parfois sa barre ou recalcule la zone de travail.
+/// Vérification périodique (1 s) : n'agit QUE si explorer a ré-affiché sa barre ou changé la zone.
 pub fn enforce() {
     if !is_active() {
         return;
     }
-    for w in tray_windows() {
+    if let Some(w) = main_tray() {
         unsafe {
             if IsWindowVisible(w).as_bool() {
                 let _ = ShowWindow(w, SW_HIDE);
@@ -188,9 +193,7 @@ pub fn enforce() {
         }
     }
     if let Some(d) = *DESIRED.lock().unwrap() {
-        if get_work_area() != d {
-            set_work_area(d, false);
-        }
+        fix_work_area(d, false);
     }
 }
 
@@ -214,7 +217,7 @@ pub fn restore() {
             true,
         );
     }
-    for w in tray_windows() {
+    if let Some(w) = main_tray() {
         unsafe {
             let _ = ShowWindow(w, SW_SHOWNA);
         }

@@ -54,6 +54,10 @@ pub fn reserve_space() -> bool {
 pub fn gaming_mode() -> bool {
     bool_at("/behavior/gamingMode", true)
 }
+/// Masquage automatique façon macOS (défaut : activé).
+pub fn auto_hide() -> bool {
+    bool_at("/behavior/autoHide", true)
+}
 pub fn autostart() -> bool {
     bool_at("/behavior/autostart", false)
 }
@@ -84,9 +88,9 @@ pub fn edge() -> Edge {
 /// Épaisseur réservée (CSS px) le long du bord : (icône + padding*2) × échelle + marge + respiration.
 pub fn reserved_css_thickness() -> f64 {
     let scale = f64_at("/appearance/scale", 1.0).clamp(0.4, 3.0);
-    let icon = f64_at("/appearance/iconSize", 38.0);
-    let pad = f64_at("/appearance/padding", 6.0);
-    let margin = f64_at("/behavior/bottomMargin", 8.0);
+    let icon = f64_at("/appearance/iconSize", 34.0);
+    let pad = f64_at("/appearance/padding", 5.0);
+    let margin = f64_at("/behavior/bottomMargin", 6.0);
     (icon + pad * 2.0) * scale + margin + 6.0
 }
 
@@ -95,6 +99,7 @@ pub fn native_fingerprint(v: &Value) -> String {
     let keys = [
         "/behavior/hideTaskbar",
         "/behavior/reserveSpace",
+        "/behavior/autoHide",
         "/behavior/bottomMargin",
         "/behavior/autostart",
         "/behavior/gamingMode",

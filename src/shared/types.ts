@@ -52,6 +52,14 @@ export interface Behavior {
   /** Mode libre : centre du dock en fraction de l'écran (0..1) */
   freeX: number;
   freeY: number;
+  /** Masquage auto façon macOS : le dock glisse hors de l'écran, un petit trait reste visible */
+  autoHide: boolean;
+  /** Délai (ms) avant masquage quand la souris quitte le dock */
+  autoHideDelay: number;
+  /** Petit trait discret affiché au bord quand le dock est masqué */
+  peekLine: boolean;
+  /** Touche Windows / menu Démarrer ouvert → le dock remonte */
+  revealOnWinKey: boolean;
   hideTaskbar: boolean;
   reserveSpace: boolean;
   gamingMode: boolean;

@@ -6,6 +6,8 @@ export const store = {
   config: null as unknown as RezConfig,
   windows: [] as WinInfo[],
   hidden: true,
+  /** Masquage automatique en cours (dock replié, petit trait visible) */
+  autoHidden: false,
   dragging: false,
 };
 

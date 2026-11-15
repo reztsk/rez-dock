@@ -50,7 +50,8 @@ pub fn insets() -> Insets {
 pub fn layout(app: &AppHandle) {
     let (mon, _, scale) = win::primary_monitor();
     let edge = config::edge();
-    let reserve = if config::reserve_space() && edge != Edge::Free {
+    // Masquage auto = comme macOS : les fenêtres maximisées prennent tout l'écran.
+    let reserve = if config::reserve_space() && !config::auto_hide() && edge != Edge::Free {
         (config::reserved_css_thickness() * scale).round() as i32
     } else {
         0
@@ -69,7 +70,7 @@ pub fn layout(app: &AppHandle) {
 }
 
 /// Surfaces envoyées par le frontend (CSS px relatifs à la fenêtre).
-pub fn set_surfaces(glass_rects: &[Surface], hit_rects: &[Surface]) {
+pub fn set_surfaces(glass_rects: &[Surface], hit_rects: &[Surface], reveal_rects: &[Surface]) {
     let b = *SHARED.bounds.lock().unwrap();
     let s = if b.scale > 0.0 { b.scale } else { 1.0 };
     let px = |v: f64| (v * s).round() as i32;
@@ -80,11 +81,13 @@ pub fn set_surfaces(glass_rects: &[Surface], hit_rects: &[Surface]) {
         .collect();
     glass::set_surfaces(SHARED.dock_hwnd.load(std::sync::atomic::Ordering::Relaxed), &rects);
 
-    let hits = hit_rects
-        .iter()
-        .map(|r| (b.x + px(r.x), b.y + px(r.y), b.x + px(r.x + r.w), b.y + px(r.y + r.h)))
-        .collect();
-    *SHARED.hit.lock().unwrap() = hits;
+    let to_screen = |list: &[Surface]| -> Vec<crate::state::ScreenRect> {
+        list.iter()
+            .map(|r| (b.x + px(r.x), b.y + px(r.y), b.x + px(r.x + r.w), b.y + px(r.y + r.h)))
+            .collect()
+    };
+    *SHARED.hit.lock().unwrap() = to_screen(hit_rects);
+    *SHARED.reveal.lock().unwrap() = to_screen(reveal_rects);
 }
 
 /// Affiche/masque dock + verre sans jamais voler le focus (crucial en jeu).

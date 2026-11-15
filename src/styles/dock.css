@@ -5,6 +5,13 @@
    ========================================================================== */
 
 :root {
+  /* posées par layout.ts sur :root (ne JAMAIS les redéclarer sur .dock : ça masquerait ces valeurs) */
+  --ax: 50vw;
+  --ay: 50vh;
+  --inset-t: 0px;
+  --inset-r: 0px;
+  --inset-b: 0px;
+  --inset-l: 0px;
   --icon: 52px;
   --gap: 8px;
   --pad: 10px;
@@ -52,12 +59,6 @@ img {
 /* ------------------------------------------------------------------ Barre */
 
 .dock {
-  --ax: 50vw;
-  --ay: 50vh;
-  --inset-t: 0px;
-  --inset-r: 0px;
-  --inset-b: 0px;
-  --inset-l: 0px;
   /* direction du rebond : vers l'intérieur de l'écran */
   --bdx: 0;
   --bdy: -1;
@@ -126,6 +127,89 @@ img {
 }
 .dock.edge-free.hidden {
   transform: translate(-50%, -50%) scale(0.85);
+}
+
+/* ---- Masquage automatique (style macOS) : repli rapide, retour avec ressort ---- */
+.dock.autohidden {
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform 0.34s cubic-bezier(0.55, 0, 0.75, 0.2),
+    opacity 0.24s ease 0.1s;
+}
+.dock.edge-bottom.autohidden {
+  transform: translate(-50%, calc(100% + var(--margin) + 14px));
+}
+.dock.edge-top.autohidden {
+  transform: translate(-50%, calc(-100% - var(--margin) - 14px));
+}
+.dock.edge-left.autohidden {
+  transform: translate(calc(-100% - var(--margin) - 14px), -50%);
+}
+.dock.edge-right.autohidden {
+  transform: translate(calc(100% + var(--margin) + 14px), -50%);
+}
+
+/* ---- Trait discret : reste au bord quand le dock est replié ---- */
+.peek {
+  --peek-len: clamp(34px, calc(var(--icon) * 1.5), 84px);
+  --peek-th: 4px;
+  position: absolute;
+  pointer-events: none;
+  opacity: 0;
+  border-radius: 99px;
+  background: linear-gradient(90deg, rgba(var(--fg), 0.55), rgba(var(--fg), 0.85), rgba(var(--fg), 0.55));
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.35),
+    0 1px 3px rgba(0, 0, 0, 0.35),
+    0 0 10px rgba(var(--accent-rgb), calc(0.65 * var(--glow)));
+  transition:
+    opacity 0.18s ease,
+    transform 0.4s var(--spring);
+}
+.peek.show {
+  opacity: 1;
+  transition:
+    opacity 0.3s ease 0.22s,
+    transform 0.5s var(--spring) 0.18s;
+}
+[data-edge='bottom'] .peek,
+[data-edge='top'] .peek {
+  left: var(--ax);
+  width: var(--peek-len);
+  height: var(--peek-th);
+  transform: translateX(-50%) scaleX(0.4);
+}
+[data-edge='bottom'] .peek {
+  bottom: calc(3px + var(--inset-b));
+}
+[data-edge='top'] .peek {
+  top: calc(3px + var(--inset-t));
+}
+[data-edge='left'] .peek,
+[data-edge='right'] .peek {
+  top: var(--ay);
+  width: var(--peek-th);
+  height: var(--peek-len);
+  background: linear-gradient(180deg, rgba(var(--fg), 0.55), rgba(var(--fg), 0.85), rgba(var(--fg), 0.55));
+  transform: translateY(-50%) scaleY(0.4);
+}
+[data-edge='left'] .peek {
+  left: calc(3px + var(--inset-l));
+}
+[data-edge='right'] .peek {
+  right: calc(3px + var(--inset-r));
+}
+[data-edge='bottom'] .peek.show,
+[data-edge='top'] .peek.show {
+  transform: translateX(-50%) scaleX(1);
+}
+[data-edge='left'] .peek.show,
+[data-edge='right'] .peek.show {
+  transform: translateY(-50%) scaleY(1);
+}
+[data-edge='free'] .peek {
+  display: none;
 }
 
 /* ---- Déplacement libre ---- */
@@ -408,9 +492,8 @@ img {
 /* ------------------------------------------------------------------ Tooltip */
 
 .tooltip {
+  /* position posée en JS selon le bord (jamais left+right ou top+bottom : sinon la bulle s'étire) */
   position: absolute;
-  left: 0;
-  bottom: 0;
   padding: 5px 11px;
   border-radius: 9px;
   font-size: 12.5px;

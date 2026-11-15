@@ -119,8 +119,8 @@ function appearancePage(): HTMLElement {
       button('Appliquer', {
         icon: 'refresh',
         onClick: () => {
-          Object.assign(cfg.appearance, { scale: 1, iconSize: 38, spacing: 5, padding: 6, radius: 16, magnification: 1.6, magnifyRange: 2.8 });
-          Object.assign(cfg.behavior, { position: 'bottom', bottomMargin: 8 });
+          Object.assign(cfg.appearance, { scale: 1, iconSize: 34, spacing: 4, padding: 5, radius: 14, magnification: 1.65, magnifyRange: 2.8 });
+          Object.assign(cfg.behavior, { position: 'bottom', bottomMargin: 6, autoHide: true, peekLine: true });
           commit(true);
         },
       }),
@@ -402,6 +402,31 @@ function behaviorPage(): HTMLElement {
   const b = cfg.behavior;
   const p = page('Comportement', 'Remplacement de la barre des tâches, mode gaming et démarrage.');
 
+  p.appendChild(h2('Masquage automatique'));
+  const hideRows = [
+    row(
+      'Masquer automatiquement le dock',
+      b.position === 'free'
+        ? 'Indisponible en placement libre (ancre le dock sur un bord)'
+        : 'Style macOS : le dock se replie quand la souris s’en va et remonte dès qu’elle touche le bord',
+      toggle(b.autoHide, (v) => ((cfg.behavior.autoHide = v), commit(true))),
+    ),
+  ];
+  if (b.autoHide) {
+    hideRows.push(
+      row('Afficher le trait discret', 'Petit trait lumineux au bord de l’écran quand le dock est replié', toggle(b.peekLine, (v) => ((cfg.behavior.peekLine = v), commit()))),
+      row(
+        'Délai avant masquage',
+        null,
+        slider({ value: b.autoHideDelay, min: 100, max: 3000, step: 50, format: (v) => `${(v / 1000).toFixed(2)} s`, onInput: (v) => ((cfg.behavior.autoHideDelay = v), commit()) }),
+      ),
+    );
+  }
+  hideRows.push(
+    row('Touche Windows', 'Appuyer sur Win (ou ouvrir le menu Démarrer) fait remonter le dock', toggle(b.revealOnWinKey, (v) => ((cfg.behavior.revealOnWinKey = v), commit()))),
+  );
+  p.appendChild(card(...hideRows));
+
   p.appendChild(h2('Barre des tâches'));
   p.appendChild(
     card(
@@ -412,7 +437,7 @@ function behaviorPage(): HTMLElement {
       ),
       row(
         'Réserver l’espace du dock',
-        'Les fenêtres maximisées s’arrêtent au-dessus du dock',
+        b.autoHide ? 'Sans effet avec le masquage automatique (les fenêtres maximisées prennent tout l’écran)' : 'Les fenêtres maximisées s’arrêtent au-dessus du dock',
         toggle(b.reserveSpace, (v) => ((cfg.behavior.reserveSpace = v), commit())),
       ),
     ),
