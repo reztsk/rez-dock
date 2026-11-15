@@ -1,7 +1,7 @@
 {
   "name": "rez-dock",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "REZ — Dock Expo-Glass pour Windows (Tauri v2)",
   "type": "module",
   "scripts": {
