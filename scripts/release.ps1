@@ -13,21 +13,23 @@ if (git status --porcelain) { throw 'Arbre git non propre : commit ou stash tes 
 if (git tag --list "v$Version") { throw "Le tag v$Version existe déjà." }
 
 $utf8 = New-Object System.Text.UTF8Encoding($false)
+function Get-Text($path) { [System.IO.File]::ReadAllText((Resolve-Path $path), $utf8) }
 function Set-Text($path, $text) { [System.IO.File]::WriteAllText((Resolve-Path $path), $text, $utf8) }
+# Remplace UNIQUEMENT la première occurrence ([regex]::Replace(a,b,c,1) prendrait 1 pour une option).
+function Set-FirstVersion($path, $pattern, $value) {
+    Set-Text $path (([regex]$pattern).Replace((Get-Text $path), $value, 1))
+}
 
-# package.json
-$pkg = Get-Content package.json -Raw
-Set-Text package.json ([regex]::Replace($pkg, '"version":\s*"[^"]+"', "`"version`": `"$Version`"", 1))
-# tauri.conf.json
-$conf = Get-Content src-tauri\tauri.conf.json -Raw
-Set-Text src-tauri\tauri.conf.json ([regex]::Replace($conf, '"version":\s*"[^"]+"', "`"version`": `"$Version`"", 1))
-# Cargo.toml (première occurrence = [package])
-$cargo = Get-Content src-tauri\Cargo.toml -Raw
-Set-Text src-tauri\Cargo.toml ([regex]::Replace($cargo, '(?m)^version\s*=\s*"[^"]+"', "version = `"$Version`"", 1))
+Set-FirstVersion package.json '"version":\s*"[^"]+"' "`"version`": `"$Version`""
+Set-FirstVersion src-tauri\tauri.conf.json '"version":\s*"[^"]+"' "`"version`": `"$Version`""
+# Cargo.toml : première ligne "version = ..." = section [package]
+Set-FirstVersion src-tauri\Cargo.toml '(?m)^version\s*=\s*"[^"]+"' "version = `"$Version`""
 
-# Met à jour Cargo.lock
-cargo update -p rez --manifest-path src-tauri/Cargo.toml --offline 2>$null
-if ($LASTEXITCODE -ne 0) { cargo generate-lockfile --manifest-path src-tauri/Cargo.toml }
+# Met à jour Cargo.lock (cargo écrit sur stderr même en cas de succès)
+$ErrorActionPreference = 'Continue'
+cargo update -p rez --manifest-path src-tauri/Cargo.toml --offline 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) { cargo generate-lockfile --manifest-path src-tauri/Cargo.toml 2>&1 | Out-Null }
+$ErrorActionPreference = 'Stop'
 
 git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
 $msg = if ($Message) { "release: v$Version — $Message" } else { "release: v$Version" }
