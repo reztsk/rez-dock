@@ -10,7 +10,10 @@ pub mod tray;
 pub mod windows;
 
 use ::windows::core::BOOL;
-use ::windows::Win32::Foundation::{HWND, LPARAM, RECT};
+use ::windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+use ::windows::Win32::System::Threading::GetCurrentThreadId;
+use ::windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
+use ::windows::Win32::UI::WindowsAndMessaging::{EnumThreadWindows, GetClassNameW, WM_CLOSE};
 use ::windows::Win32::Graphics::Gdi::{
     EnumDisplayMonitors, GetMonitorInfoW, MonitorFromPoint, HDC, HMONITOR, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
 };
@@ -31,6 +34,33 @@ pub fn hwnd_val(h: HWND) -> isize {
 pub fn from_wide(buf: &[u16]) -> String {
     let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
     String::from_utf16_lossy(&buf[..end])
+}
+
+unsafe extern "system" fn swallow_close(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM, _: usize, _: usize) -> LRESULT {
+    if msg == WM_CLOSE {
+        return LRESULT(0);
+    }
+    DefSubclassProc(h, msg, wp, lp)
+}
+
+unsafe extern "system" fn protect_cb(h: HWND, _: LPARAM) -> BOOL {
+    let mut buf = [0u16; 128];
+    let n = GetClassNameW(h, &mut buf);
+    let class = String::from_utf16_lossy(&buf[..n.max(0) as usize]);
+    // Boucle d'événements Tauri/tao + fenêtre « instance unique » : si un WM_CLOSE extérieur les
+    // détruit, le dock ne reçoit plus aucun événement (survol, touche Win) → barre « morte ».
+    if class == "Tao Thread Event Target" || class.ends_with("-sic") {
+        let _ = SetWindowSubclass(h, Some(swallow_close), 0x52455A, 0);
+    }
+    BOOL(1)
+}
+
+/// À appeler depuis le thread principal (un sous-classement ne marche que sur son propre thread).
+/// Uniquement nos propres fenêtres : aucun accès à un autre processus.
+pub fn protect_internal_windows() {
+    unsafe {
+        let _ = EnumThreadWindows(GetCurrentThreadId(), Some(protect_cb), LPARAM(0));
+    }
 }
 
 /// Un écran : rect moniteur, zone de travail, échelle DPI.

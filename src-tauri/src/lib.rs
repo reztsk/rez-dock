@@ -85,6 +85,8 @@ pub fn run() {
                 taskbar::init(dir.join("taskbar-state.json"));
             }
 
+            win::protect_internal_windows();
+
             let dock = app.get_webview_window(dock::PRIMARY).expect("fenêtre dock manquante");
             let _ = dock.set_ignore_cursor_events(true);
 
@@ -96,13 +98,12 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            // Aucune fenêtre dock ne se ferme sur demande extérieure (WM_CLOSE envoyé par une autre
+            // app, Alt+F4, fermeture depuis la zone de notification…) : sinon dock disparu + barre
+            // Windows masquée. On quitte REZ Dock uniquement via « Quitter » (commande quit_app).
             if let WindowEvent::CloseRequested { api, .. } = event {
-                let label = window.label();
-                if label == dock::PRIMARY {
-                    taskbar::restore();
-                    window.app_handle().exit(0);
-                } else if dock::is_dock(label) {
-                    api.prevent_close(); // docks secondaires : gérés par REZ (Alt+F4 ignoré)
+                if dock::is_dock(window.label()) {
+                    api.prevent_close();
                 }
             }
         })

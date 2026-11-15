@@ -27,9 +27,58 @@ use crate::win::{self, hwnd_val, taskbar, windows as wins};
 use crate::{config, dock};
 
 pub fn start(app: AppHandle) {
-    let a = app.clone();
-    thread::Builder::new().name("rez-tick".into()).spawn(move || tick_loop(a)).ok();
-    thread::Builder::new().name("rez-hit".into()).spawn(move || hit_loop(app)).ok();
+    supervise("rez-tick", app.clone(), tick_loop);
+    supervise("rez-hit", app.clone(), hit_loop);
+    supervise("rez-guard", app, guard_loop);
+}
+
+/// Boucle immortelle : si elle panique, elle est relancée (et la barre Windows re-masquée,
+/// le hook de panic l'ayant restaurée). Hotspot, touche Win et click-through ne s'arrêtent jamais.
+fn supervise(name: &'static str, app: AppHandle, body: fn(AppHandle)) {
+    thread::Builder::new()
+        .name(name.into())
+        .spawn(move || loop {
+            let a = app.clone();
+            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || body(a))).is_ok() {
+                return; // sortie volontaire (redémarrage en cours)
+            }
+            thread::sleep(Duration::from_millis(500));
+            crate::commands::apply_native(&app);
+        })
+        .ok();
+}
+
+/// Chien de garde : si le moteur WebView2 de REZ Dock meurt (tué depuis le Gestionnaire des
+/// tâches, plantage du runtime…), la fenêtre plein écran resterait sans interface : dock invisible,
+/// souris captée, barre Windows masquée. On libère tout de suite la souris, on rend la barre
+/// Windows, puis REZ Dock redémarre proprement.
+fn guard_loop(app: AppHandle) {
+    let mut seen = false;
+    let mut misses = 0u32;
+    loop {
+        thread::sleep(Duration::from_millis(1500));
+        if SHARED.gaming.load(Ordering::SeqCst) {
+            continue;
+        }
+        if crate::win::tray::own_webview_count() > 0 {
+            seen = true;
+            misses = 0;
+            continue;
+        }
+        // Pas encore démarré, ou simple trou de snapshot : on attend une 2e confirmation.
+        misses += 1;
+        if !seen || misses < 2 {
+            continue;
+        }
+        for w in dock::windows(&app) {
+            let _ = w.set_ignore_cursor_events(true);
+            let _ = w.hide();
+        }
+        crate::win::glass::set_visible(false);
+        SHARED.docks.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        taskbar::restore();
+        app.restart();
+    }
 }
 
 fn is_fullscreen_foreground() -> bool {
@@ -141,7 +190,7 @@ fn tick_loop(app: AppHandle) {
         if tick % 3 == 0 {
             let list = wins::enumerate(&mut cache);
             let changed = {
-                let mut cur = SHARED.windows.lock().unwrap();
+                let mut cur = SHARED.windows.lock().unwrap_or_else(|e| e.into_inner());
                 if *cur != list {
                     *cur = list.clone();
                     true
@@ -253,7 +302,7 @@ fn hit_loop(app: AppHandle) {
                 continue;
             }
             {
-                let docks = SHARED.docks.lock().unwrap();
+                let docks = SHARED.docks.lock().unwrap_or_else(|e| e.into_inner());
                 for d in docks.iter() {
                     let inside = in_rects(&d.hit, pt);
                     // Zone de réveil (bord d'écran / petit trait) : n'intercepte aucun clic.

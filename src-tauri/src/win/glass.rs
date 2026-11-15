@@ -85,12 +85,22 @@ struct CompositionData {
     size: usize,
 }
 
-type SetWindowCompositionAttribute = unsafe extern "system" fn(HWND, *mut CompositionData) -> BOOL;
+/// Message privé de destruction (WM_CLOSE étant ignoré).
+const REZ_DESTROY: u32 = WM_APP + 0x52;
+
+type SetWindowCompositionAttribute =unsafe extern "system" fn(HWND, *mut CompositionData) -> BOOL;
 
 unsafe extern "system" fn wndproc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match msg {
         WM_NCHITTEST => LRESULT(HTTRANSPARENT as isize),
         WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
+        // WM_CLOSE venu de l'extérieur (taskkill sans /F, outil tiers…) : ignoré, le verre reste.
+        WM_CLOSE => LRESULT(0),
+        // Seul REZ détruit ses fenêtres de verre (message privé, voir `remove`).
+        REZ_DESTROY => {
+            let _ = DestroyWindow(h);
+            LRESULT(0)
+        }
         // Pool retiré (écran débranché) : le thread du pool se termine (ses fenêtres avec lui).
         WM_DESTROY => {
             PostQuitMessage(0);
@@ -178,7 +188,7 @@ pub fn remove(label: &str) {
     if let Some(p) = POOLS.lock().unwrap().remove(label) {
         for w in p.windows {
             unsafe {
-                let _ = PostMessageW(Some(hwnd(w)), WM_CLOSE, WPARAM(0), LPARAM(0));
+                let _ = PostMessageW(Some(hwnd(w)), REZ_DESTROY, WPARAM(0), LPARAM(0));
             }
         }
     }

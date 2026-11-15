@@ -48,8 +48,36 @@ const PROTECTED: &[&str] = &[
     "svchost.exe", "explorer.exe", "dwm.exe", "fontdrvhost.exe", "sihost.exe", "ctfmon.exe",
 ];
 
-/// (pid, nom exe minuscule) de tous les processus.
-pub fn process_list() -> Vec<(u32, String)> {
+/// Moteur d'affichage des apps (REZ Dock compris) : jamais une « app en arrière-plan » à fermer.
+const WEBVIEW: &str = "msedgewebview2.exe";
+
+/// REZ Dock + tous ses descendants (moteur WebView2 : msedgewebview2.exe navigateur, rendu, GPU…).
+/// Les terminer tuerait l'interface du dock : jamais listés, jamais terminables.
+fn own_tree(procs: &[(u32, u32, String)]) -> HashSet<u32> {
+    let mut tree: HashSet<u32> = HashSet::from([std::process::id()]);
+    loop {
+        let before = tree.len();
+        for &(pid, parent, _) in procs {
+            // pid != parent : garde-fou contre les pids recyclés / boucles.
+            if pid != parent && tree.contains(&parent) {
+                tree.insert(pid);
+            }
+        }
+        if tree.len() == before {
+            return tree;
+        }
+    }
+}
+
+/// Processus WebView2 de REZ Dock encore vivants (0 = interface du dock morte).
+pub fn own_webview_count() -> usize {
+    let procs = snapshot();
+    let tree = own_tree(&procs);
+    procs.iter().filter(|(pid, _, name)| tree.contains(pid) && name == WEBVIEW).count()
+}
+
+/// (pid, pid parent, nom exe minuscule) de tous les processus.
+fn snapshot() -> Vec<(u32, u32, String)> {
     let mut out = Vec::new();
     unsafe {
         let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else {
@@ -61,7 +89,11 @@ pub fn process_list() -> Vec<(u32, String)> {
         };
         if Process32FirstW(snap, &mut entry).is_ok() {
             loop {
-                out.push((entry.th32ProcessID, super::from_wide(&entry.szExeFile).to_lowercase()));
+                out.push((
+                    entry.th32ProcessID,
+                    entry.th32ParentProcessID,
+                    super::from_wide(&entry.szExeFile).to_lowercase(),
+                ));
                 if Process32NextW(snap, &mut entry).is_err() {
                     break;
                 }
@@ -101,10 +133,13 @@ fn file_name_lower(p: &str) -> String {
 }
 
 pub fn tray_apps() -> Vec<TrayApp> {
-    let procs = process_list();
+    let procs = snapshot();
+    let mine = own_tree(&procs);
     let mut running: HashMap<String, Vec<u32>> = HashMap::new();
-    for (pid, name) in procs {
-        running.entry(name).or_default().push(pid);
+    for (pid, _, name) in procs {
+        if !mine.contains(&pid) {
+            running.entry(name).or_default().push(pid);
+        }
     }
 
     let mut out: Vec<TrayApp> = Vec::new();
@@ -126,7 +161,7 @@ pub fn tray_apps() -> Vec<TrayApp> {
         }
         let exe_path = resolve_known_folder(&raw);
         let exe_name = file_name_lower(&exe_path);
-        if exe_name.is_empty() || exe_path.to_lowercase() == own || exe_name == "explorer.exe" {
+        if exe_name.is_empty() || exe_path.to_lowercase() == own || exe_name == "explorer.exe" || exe_name == WEBVIEW {
             continue;
         }
         let Some(pids) = running.get(&exe_name) else { continue };
@@ -164,13 +199,20 @@ pub fn background_processes() -> Vec<BgProcess> {
     unsafe {
         let _ = ProcessIdToSessionId(std::process::id(), &mut session);
     }
-    let windowed: HashSet<u32> = SHARED.windows.lock().unwrap().iter().map(|w| w.pid).collect();
+    let windowed: HashSet<u32> =
+        SHARED.windows.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|w| w.pid).collect();
     let windir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into()).to_lowercase();
-    let own = std::process::id();
+    let procs = snapshot();
+    let mine = own_tree(&procs);
 
     let mut groups: HashMap<String, BgProcess> = HashMap::new();
-    for (pid, name) in process_list() {
-        if pid <= 4 || pid == own || windowed.contains(&pid) || PROTECTED.contains(&name.as_str()) {
+    for (pid, _, name) in procs {
+        if pid <= 4
+            || mine.contains(&pid)
+            || name == WEBVIEW
+            || windowed.contains(&pid)
+            || PROTECTED.contains(&name.as_str())
+        {
             continue;
         }
         let mut s = 0u32;
@@ -200,15 +242,17 @@ pub fn background_processes() -> Vec<BgProcess> {
 
 /// Fermeture forcée demandée explicitement par l'utilisateur (bouton + confirmation).
 pub fn kill(pids: &[u32]) -> usize {
-    let names: HashMap<u32, String> = process_list().into_iter().collect();
-    let own = std::process::id();
+    let procs = snapshot();
+    let mine = own_tree(&procs);
+    let names: HashMap<u32, String> = procs.into_iter().map(|(pid, _, name)| (pid, name)).collect();
     let mut killed = 0;
     for &pid in pids {
-        if pid <= 4 || pid == own {
+        // Jamais REZ Dock ni son moteur WebView2 (sinon : dock disparu, souris captée, barre masquée).
+        if pid <= 4 || mine.contains(&pid) {
             continue;
         }
         if let Some(n) = names.get(&pid) {
-            if PROTECTED.contains(&n.as_str()) {
+            if PROTECTED.contains(&n.as_str()) || n == WEBVIEW {
                 continue;
             }
         } else {
@@ -224,4 +268,35 @@ pub fn kill(pids: &[u32]) -> usize {
         }
     }
     killed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn own_tree_covers_all_descendants() {
+        let me = std::process::id();
+        let procs = vec![
+            (me, 1, "rez-dock.exe".to_string()),
+            (9001, me, WEBVIEW.to_string()),
+            (9002, 9001, WEBVIEW.to_string()),
+            (9003, 9002, WEBVIEW.to_string()),
+            (9100, 1, "other.exe".to_string()),
+            (9101, 9100, WEBVIEW.to_string()),
+            (9200, 9200, "self-parent.exe".to_string()),
+        ];
+        let tree = own_tree(&procs);
+        assert!([me, 9001, 9002, 9003].iter().all(|p| tree.contains(p)));
+        assert!([9100, 9101, 9200].iter().all(|p| !tree.contains(p)));
+    }
+
+    #[test]
+    fn background_list_never_contains_self_or_webview() {
+        let me = std::process::id();
+        let list = background_processes();
+        assert!(list.iter().all(|p| !p.pids.contains(&me)));
+        assert!(list.iter().all(|p| !p.path.to_lowercase().ends_with(WEBVIEW)));
+        assert_eq!(kill(&[me]), 0);
+    }
 }
