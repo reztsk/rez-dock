@@ -133,7 +133,7 @@ pub fn enumerate(cache: &mut HashMap<u32, String>) -> Vec<WinInfo> {
         let mut pid = pid_of(h);
         let t = title(h);
         // Fenêtres REZ exclues, sauf la fenêtre de réglages (pour pouvoir la retrouver).
-        if pid == own_pid && !t.starts_with("REZ — Réglages") {
+        if pid == own_pid && !t.starts_with("REZ Dock — ") {
             continue;
         }
         let mut exe = match cache.get(&pid) {

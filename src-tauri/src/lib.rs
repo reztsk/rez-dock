@@ -3,6 +3,7 @@
 mod commands;
 mod config;
 mod dock;
+mod legacy;
 mod monitor;
 mod state;
 mod win;
@@ -11,6 +12,24 @@ use tauri::{Manager, RunEvent, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
 
 use win::taskbar;
+
+/// Ancien identifiant (≤ 1.2.0) : `app.rez.dock`, nom produit « REZ » partagé avec REZ Island.
+/// On reprend ses réglages (et l'état de la barre Windows à restaurer) une seule fois.
+/// Le dossier de REZ Island (`com.rez.island`) n'est jamais lu ni modifié.
+fn migrate_legacy_dir(app: &tauri::AppHandle) {
+    let Ok(dir) = app.path().app_config_dir() else { return };
+    let Some(old) = dir.parent().map(|p| p.join("app.rez.dock")) else { return };
+    if old == dir || !old.is_dir() {
+        return;
+    }
+    let _ = std::fs::create_dir_all(&dir);
+    for name in ["config.json", "taskbar-state.json"] {
+        let (src, dst) = (old.join(name), dir.join(name));
+        if src.is_file() && !dst.exists() {
+            let _ = std::fs::copy(&src, &dst);
+        }
+    }
+}
 
 pub fn run() {
     // Filet de sécurité : la barre Windows est TOUJOURS restaurée, même sur panic.
@@ -23,7 +42,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // Relancer REZ alors qu'il tourne déjà = ouvrir les réglages.
-            let _ = commands::open_settings_window(app);
+            // Hors du thread principal (création de fenêtre bloquante sinon sous Windows).
+            let app = app.clone();
+            std::thread::spawn(move || {
+                let _ = commands::open_settings_window(&app);
+            });
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
@@ -55,6 +78,8 @@ pub fn run() {
         ])
         .setup(|app| {
             let handle = app.handle().clone();
+            migrate_legacy_dir(&handle);
+            legacy::cleanup(&handle);
             config::load(&handle);
             if let Ok(dir) = handle.path().app_config_dir() {
                 taskbar::init(dir.join("taskbar-state.json"));

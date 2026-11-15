@@ -99,6 +99,11 @@ export function setZone(v: boolean): void {
 
 export function setShell(v: boolean): void {
   sig.shell = v;
+  // Touche Win / menu Démarrer : remontée éclair, en phase avec l'ouverture du menu natif.
+  if (v && store.autoHidden && store.config.behavior.revealOnWinKey) {
+    dockEl.classList.add('snap');
+    window.setTimeout(() => dockEl.classList.remove('snap'), 260);
+  }
   // Menu Démarrer refermé : on laisse un peu plus de temps avant de replier.
   evaluate(v ? undefined : Math.max(900, store.config.behavior.autoHideDelay));
 }

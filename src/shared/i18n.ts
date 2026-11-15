@@ -78,7 +78,7 @@ const EN: Record<string, string> = {
   'Mises à jour': 'Updates',
   'À propos': 'About',
   Réglages: 'Settings',
-  'REZ — Réglages': 'REZ — Settings',
+  'REZ Dock — Réglages': 'REZ Dock — Settings',
   Réduire: 'Minimize',
   Fermer: 'Close',
   Langue: 'Language',

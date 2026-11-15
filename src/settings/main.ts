@@ -82,7 +82,7 @@ function renderNav(): void {
     void api.launch(PROFILE_URL);
   };
   const ver = el('div', 'nav-version');
-  void getVersion().then((v) => (ver.textContent = `REZ v${v}`));
+  void getVersion().then((v) => (ver.textContent = `REZ Dock v${v}`));
   foot.append(langSel, gh, ver);
   nav.appendChild(foot);
 }
@@ -615,7 +615,7 @@ function aboutPage(): HTMLElement {
   const logo = el('img');
   logo.src = '/rez-logo.png';
   const txt = el('div');
-  const name = el('div', 'name', 'REZ');
+  const name = el('div', 'name', 'REZ Dock');
   const v = el('div', 'desc', 'Dock Expo-Glass pour Windows');
   void getVersion().then((ver) => (v.textContent = t('Dock Expo-Glass pour Windows · v{v}', { v: ver })));
   txt.append(name, v);
@@ -681,7 +681,7 @@ document.addEventListener('contextmenu', (e) => {
 async function init(): Promise<void> {
   cfg = mergeConfig(await api.getConfig());
   setLang(cfg.behavior.language);
-  document.title = t('REZ — Réglages');
+  document.title = t('REZ Dock — Réglages');
   autoTranslate(document.body);
   applyAppearance(cfg);
   renderNav();

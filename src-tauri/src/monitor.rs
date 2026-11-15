@@ -17,7 +17,10 @@ use windows::Win32::Foundation::{HWND, POINT, RECT};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LWIN, VK_RWIN};
 use windows::Win32::Graphics::Gdi::{ClientToScreen, GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
 use windows::Win32::UI::Shell::{SHQueryUserNotificationState, QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN};
-use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, GetCursorPos, GetForegroundWindow, IsWindowVisible};
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetClientRect, GetCursorPos, GetForegroundWindow, GetWindowLongW, IsWindowVisible, IsZoomed, GWL_STYLE, WINDOW_STYLE,
+    WS_CAPTION,
+};
 
 use crate::state::SHARED;
 use crate::win::{self, hwnd_val, taskbar, windows as wins};
@@ -39,10 +42,13 @@ fn is_fullscreen_foreground() -> bool {
             return false;
         }
         let class = wins::class_name(fg);
+        // Bureau / shell, et navigateurs (Chrome, Edge, Brave, Opera, Firefox, apps Electron) :
+        // jamais un jeu, même en F11 → le dock et son trait restent actifs par-dessus.
         if matches!(
             class.as_str(),
             "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd" | "XamlExplorerHostIslandWindow"
                 | "Windows.UI.Core.CoreWindow" | "MultitaskingViewFrame" | "ForegroundStaging"
+                | "Chrome_WidgetWin_1" | "MozillaWindowClass"
         ) {
             return false;
         }
@@ -50,6 +56,12 @@ fn is_fullscreen_foreground() -> bool {
             if state == QUNS_RUNNING_D3D_FULL_SCREEN || state == QUNS_PRESENTATION_MODE {
                 return true;
             }
+        }
+        // Fenêtre maximisée ou avec barre de titre : la barre Windows étant masquée, sa zone client
+        // couvre tout l'écran — ce n'est PAS du plein écran (sinon le dock disparaît en boucle).
+        let style = WINDOW_STYLE(GetWindowLongW(fg, GWL_STYLE) as u32);
+        if IsZoomed(fg).as_bool() || style.contains(WS_CAPTION) {
+            return false;
         }
         // Plein écran fenêtré sans bordure : la zone client couvre tout le moniteur.
         let mut rc = RECT::default();

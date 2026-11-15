@@ -3067,8 +3067,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "rez"
-version = "1.2.0"
+name = "rez-dock"
+version = "1.2.1"
 dependencies = [
  "base64 0.22.1",
  "png",

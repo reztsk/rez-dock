@@ -145,8 +145,10 @@ pub fn is_gaming() -> bool {
     SHARED.gaming.load(Ordering::Relaxed)
 }
 
+/// `async` obligatoire : créer une fenêtre dans une commande synchrone bloque le thread principal
+/// sous Windows (fenêtre blanche + dock figé).
 #[tauri::command]
-pub fn open_settings(app: AppHandle) -> Result<(), String> {
+pub async fn open_settings(app: AppHandle) -> Result<(), String> {
     open_settings_window(&app).map_err(|e| e.to_string())
 }
 
@@ -158,7 +160,7 @@ pub fn open_settings_window(app: &AppHandle) -> tauri::Result<()> {
         return Ok(());
     }
     let w = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("settings.html".into()))
-        .title("REZ — Réglages")
+        .title("REZ Dock — Réglages")
         .inner_size(1040.0, 720.0)
         .min_inner_size(860.0, 600.0)
         .decorations(false)

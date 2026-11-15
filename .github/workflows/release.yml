@@ -42,10 +42,10 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'REZ ${{ github.ref_name }}'
+          releaseName: 'REZ Dock ${{ github.ref_name }}'
           releaseBody: |
             ## Installation
-            Télécharge **REZ_x.y.z_x64-setup.exe** ci-dessous et lance-le (aucun droit administrateur requis).
+            Télécharge **REZ.Dock_x.y.z_x64-setup.exe** ci-dessous et lance-le (aucun droit administrateur requis).
             Les versions installées se mettent à jour toutes seules au lancement.
           releaseDraft: false
           prerelease: false

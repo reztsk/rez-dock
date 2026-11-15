@@ -27,7 +27,7 @@ Set-FirstVersion src-tauri\Cargo.toml '(?m)^version\s*=\s*"[^"]+"' "version = `"
 
 # Met à jour Cargo.lock (cargo écrit sur stderr même en cas de succès)
 $ErrorActionPreference = 'Continue'
-cargo update -p rez --manifest-path src-tauri/Cargo.toml --offline 2>&1 | Out-Null
+cargo update -p rez-dock --manifest-path src-tauri/Cargo.toml --offline 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) { cargo generate-lockfile --manifest-path src-tauri/Cargo.toml 2>&1 | Out-Null }
 $ErrorActionPreference = 'Stop'
 

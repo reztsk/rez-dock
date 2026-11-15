@@ -113,6 +113,9 @@ fn create_windows() -> Vec<isize> {
                 hInstance: module.into(),
                 lpszClassName: PCWSTR(class.as_ptr()),
                 hbrBackground: HBRUSH(GetStockObject(BLACK_BRUSH).0),
+                // Curseur de classe explicite : sans lui, Windows laisse un curseur indéfini
+                // (invisible / clignotant) quand la souris passe au-dessus du verre.
+                hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
                 ..Default::default()
             };
             RegisterClassExW(&wc); // déjà enregistrée au 2e pool : échec sans conséquence

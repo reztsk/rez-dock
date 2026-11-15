@@ -6,7 +6,7 @@
 
 ## Télécharger (utilisateurs)
 
-👉 **[Dernière version](https://github.com/reztsk/rez-dock/releases/latest)** → `REZ_x.y.z_x64-setup.exe` → lancer.
+👉 **[Dernière version](https://github.com/reztsk/rez-dock/releases/latest)** → `REZ.Dock_x.y.z_x64-setup.exe` → lancer.
 Pas besoin de droits admin. REZ se met à jour tout seul : une notification s'affiche au-dessus du dock → **Mettre à jour**.
 
 ## Fonctionnalités
